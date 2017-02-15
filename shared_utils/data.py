@@ -2,6 +2,8 @@
 A class for loading data, in particular loading YOLO features in batches
 """
 import os
+import cv2
+import numpy as np
 
 
 def load_regular_coord_by_line(line):
@@ -52,30 +54,32 @@ class BatchLoader:
         batch_xs = []
         batch_ys = []
         vec_len = 4102
-        for ground_truth_filepath, frames, frame_ids in batch:
-            import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
+        for ground_truth_filepath, frames, frame_ids, width, height in batch:
+            # import pdb; pdb.set_trace()
             with open(ground_truth_filepath) as gt_file:
                 lines = gt_file.readlines()
-                for x in frame_ids:
+                # for x in frame_ids:
                     #frame ids are 1 indexed
-                    reg_coords = load_regular_coord_by_line(lines[x-1])
-                    decimal_coords = coord_regular_to_decimal(reg_coords, img_wid, img_ht)
-                    batch_ys.append(decimal_coords)
+                # load the frame to predict for which is the last from in the sequence
+                reg_coords = load_regular_coord_by_line(lines[frame_ids[-1]-1])
+                decimal_coords = coord_regular_to_decimal(reg_coords, width, height)
+                batch_ys.append(decimal_coords)
 
             for frame in frames:
-                vec_from_file = np.load(file_path)
-                vec_from_file = np.flatten(vec_from_file)
+                vec_from_file = np.load(frame)
+                vec_from_file = np.ndarray.flatten(vec_from_file)
                 vec_len = vec_from_file.shape[0]
                 # TODO: may need to remove category/etc
                 batch_xs.append(vec_from_file)
 
         batch_xs = np.array(batch_xs)
         batch_ys = np.array(batch_ys)
-        batch_xs = np.reshape(batch_xs, [len(frames) * len(batch), vec_len])
-        batch_ys = np.reshape(batch_ys, [len(frames) * len(batch), vec_len])
+        batch_xs = np.reshape(batch_xs, [len(batch), len(frames), vec_len])
+        batch_ys = np.reshape(batch_ys, [len(batch), 4])
 
         batch_xs, batch_ys
-
+        return batch_xs, batch_ys
 
     def generate_batches(self, data_filepath, seq_len=6, batch_size=1, folders_to_use=None, step_size=5):
         """Expects a folder structure in the format:
@@ -119,11 +123,13 @@ class BatchLoader:
                     failure_count += 1
                     continue
 
+                img = cv2.imread(os.path.join(*[data_filepath, f, 'img/','%04d.jpg' % current_step]))
+                height, width, channels = img.shape
                 frames = [os.path.join(*[data_filepath, f, 'yolo_out/',"%04d.npy" % x]) for x in range(current_step, current_step + seq_len)]
                 frame_ids = [x for x in range(current_step, current_step + seq_len)]
                 # import pdb; pdb.set_trace()
                 # TODO: load sample image to collect image height and width data
-                possible_batches.append((os.path.join(*[data_filepath, f, "groundtruth_rect.txt"]), frames, frame_ids))
+                possible_batches.append((os.path.join(*[data_filepath, f, "groundtruth_rect.txt"]), frames, frame_ids, width, height))
 
             if failure_count >= len(folders_to_use):
                 # all our folders are out of possible sequences

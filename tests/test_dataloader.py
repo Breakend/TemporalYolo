@@ -16,4 +16,5 @@ def test_loading_batches():
 
     batch1 = batch_loader.load_batch(0)
 
-    assert_equals(len(batch1), 2)
+    assert_equals(len(batch1[1]), 2)
+    assert_equals(len(batch1[0]), 2)
