@@ -46,7 +46,7 @@ def coord_regular_to_decimal(coord_regular, img_wid, img_ht):
 
 class BatchLoader:
 
-    def __init__(self, data_filepath, seq_len=6, batch_size=1, step_size=5, folders_to_use=None):
+    def __init__(self, data_filepath, seq_len=6, batch_size=1, step_size=1, folders_to_use=None):
         self.batches = self.generate_batches(data_filepath, seq_len, batch_size, folders_to_use, step_size)
 
     def load_batch(self, batch_id):
@@ -81,7 +81,7 @@ class BatchLoader:
         batch_xs, batch_ys
         return batch_xs, batch_ys
 
-    def generate_batches(self, data_filepath, seq_len=6, batch_size=1, folders_to_use=None, step_size=5):
+    def generate_batches(self, data_filepath, seq_len=6, batch_size=1, folders_to_use=None, step_size=1):
         """Expects a folder structure in the format:
            -data_filepath
              -> folders_to_use[0]
@@ -130,6 +130,8 @@ class BatchLoader:
                 # import pdb; pdb.set_trace()
                 # TODO: load sample image to collect image height and width data
                 possible_batches.append((os.path.join(*[data_filepath, f, "groundtruth_rect.txt"]), frames, frame_ids, width, height))
+
+            # import pdb; pdb.set_trace()
 
             if failure_count >= len(folders_to_use):
                 # all our folders are out of possible sequences

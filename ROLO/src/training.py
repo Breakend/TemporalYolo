@@ -1,21 +1,20 @@
 import sys, os
-sys.path.append(os.path.abspath("../utils/"))
+# assumes running from main directory
+sys.path.append(os.path.abspath("./"))
+
 import time, random
-
-from utils_io_coord import *
-from utils_io_list import *
-from utils_dataset import *
-
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import rnn, rnn_cell, cv2
 
-from testing import test
+# from testing import test
+from shared_utils.data import BatchLoader
+
 
 class ROLO_TF:
     # Buttons
-    validate = True
+    validate = False
     validate_step = 1000
     display_validate = True
     save_step = 1000
@@ -29,9 +28,6 @@ class ROLO_TF:
     lamda = 1.0
 
     # Path
-    list_pairs_numpy_file_path = '/home/ngh/dev/ROLO-TRACK/training_list/list_0.npy'
-    dataset_annotation_folder_path = '/home/ngh/dev/ROLO-dev/benchmark/ILSVRC2015/Annotations/VID/train/ILSVRC2015_VID_train_0000'
-    numpy_folder_name = 'VID_loc_gt'   # Alternatives: 'VID_loc_gt' and 'VID_loc'
     rolo_weights_file = '../rolo_weights.ckpt'
     rolo_current_save = '../rolo_weights_temp.ckpt'
 
@@ -57,61 +53,6 @@ class ROLO_TF:
     def __init__(self, argvs = []):
         print("ROLO Initializing")
         self.ROLO()
-
-
-    # Routines: Data
-    def load_training_list(self):
-        # TODO: instead of this, should load pairs in the form:
-        #        folder_path (i.e. birds1), frame_id (start of sequence)
-        # TODO: i think! should stagger the frames such that we do n+1
-        self.list_batch_pairs = load_list_batch_pairs_from_numpy_file(self.list_pairs_numpy_file_path,
-                                                                      self.batchsize)
-
-
-    def load_batch(self, b_id):
-        max_id = len(self.list_batch_pairs)
-        if b_id <= max_id:
-            batch_pairs = self.list_batch_pairs[b_id]
-            batch_frame_ids = [int(batch_pair[1]) for batch_pair in batch_pairs]
-
-            batch_subfolder_names = [batch_pair[0] for batch_pair in batch_pairs]
-            batch_numpy_folder_paths = [os.path.join(self.dataset_annotation_folder_path,
-                                                     subfolder_name,
-                                                     self.numpy_folder_name)
-                                        for subfolder_name in batch_subfolder_names]
-
-            attempted_batch_yolovecs = batchload_yolovecs_from_numpy_folders(batch_numpy_folder_paths,
-                                                                             batch_frame_ids,
-                                                                             self.batchsize,
-                                                                             self.nsteps)
-        if b_id > max_id or attempted_batch_yolovecs == -1:
-            self.update_dataset_annotation_folder_path()
-            self.batch_offset = self.iter_id
-            self.load_training_list()
-            attempted_batch_yolovecs = False
-            batch_subfolder_names = []
-            batch_frame_ids = []
-        return [attempted_batch_yolovecs, batch_subfolder_names, batch_frame_ids]
-
-
-    def update_dataset_annotation_folder_path(self):
-        try:
-            list_folder_path = list(self.dataset_annotation_folder_path)
-            list_file_path = list(self.list_pairs_numpy_file_path)
-
-            last_int = int(self.dataset_annotation_folder_path[-1])
-            new_int = (last_int + 1)%4
-            list_folder_path[-1] = str(new_int)
-            list_file_path[-5] = str(new_int)
-
-            self.dataset_annotation_folder_path = ''.join(list_folder_path)
-            self.list_pairs_numpy_file_path = ''.join(list_file_path)
-            print(self.dataset_annotation_folder_path)
-            print(self.list_pairs_numpy_file_path)
-            print("Finished 1/4 of all data. Annotation folder updated")
-        except ValueError:
-            print("Error updating dataset annotation folder")
-
 
     # Routines: Network
     def LSTM(self, name,  _X, _istate):
@@ -160,6 +101,12 @@ class ROLO_TF:
         self.saver = tf.train.Saver()
         batch_states = np.zeros((self.batchsize, 2*self.len_vec))
 
+        # TODO: make this a command line argument, etc.
+        # training set loader
+        batch_loader = BatchLoader("./DATA/", seq_len=self.nsteps, batch_size=self.batchsize, step_size=1, folders_to_use=["Human3","Human4", "Human8", "Human9"])
+        # Validation set loader
+        validation_set_loader = BatchLoader("./VALID/", seq_len=self.nsteps, batch_size=self.batchsize, step_size=1, folders_to_use=["Human6" ,"Human7"])
+
         ''' Launch the graph '''
         with tf.Session() as sess:
             if self.restore_weights == True and os.path.isfile(self.rolo_current_save):
@@ -170,26 +117,21 @@ class ROLO_TF:
                 sess.run(init)
                 print("Training from scratch")
 
-            self.load_training_list()
 
             for self.iter_id in range(self.n_iters):
                 ''' Load training data & ground truth '''
                 batch_id = self.iter_id - self.batch_offset
-                [batch_vecs, batch_seq_names, batch_frame_ids] = self.load_batch(batch_id)
-                if batch_vecs is False: continue
 
-                batch_xs = batch_vecs
-                batch_ys = batchload_gt_decimal_coords_from_VID(self.dataset_annotation_folder_path,
-                                                                batch_seq_names,
-                                                                batch_frame_ids,
-                                                                offset = self.nsteps - 1)
-                if batch_ys is False: continue
+                batch_xs, batch_ys = batch_loader.load_batch(batch_id)
+                # import pdb; pdb.set_trace()
 
-                ''' Reshape data '''
-                batch_xs = np.reshape(batch_xs, [self.batchsize, self.nsteps, self.len_vec])
-                batch_ys = np.reshape(batch_ys, [self.batchsize, 4])
+
+                # ''' Reshape data '''
+                # batch_xs = np.reshape(batch_xs, [self.batchsize, self.nsteps, self.len_vec])
+                # batch_ys = np.reshape(batch_ys, [self.batchsize, 4])
 
                 ''' Update weights by back-propagation '''
+                # import pdb; pdb.set_trace()
                 sess.run(optimizer, feed_dict={self.x: batch_xs,
                                                self.y: batch_ys,
                                                self.istate: batch_states})
@@ -226,7 +168,9 @@ class ROLO_TF:
 
                 ''' Validation '''
                 if self.validate == True and self.iter_id % self.validate_step == 0:
-                    dataset_loss = test(self, sess, loss, batch_pred_coords)
+                    # Run validation set
+
+                    dataset_loss = self.test(sess, loss, validation_set_loader)
 
                     ''' Early-stop regularization '''
                     if dataset_loss <= dataset_loss_best:
@@ -241,6 +185,34 @@ class ROLO_TF:
                     test_writer.add_summary(summary, self.iter_id)
         return
 
+
+    def test(self, sess, loss, batch_loader):
+        loss_dataset_total = 0
+        #TODO: put outputs somewhere
+        output_path = os.path.join('rolo_loc_test/')
+        for batch_id in range(len(batch_loader.batches)):
+            xs, ys = batch_loader.load_batch(batch_id)
+            loss_seq_total = 0
+
+            init_state_zeros = np.zeros((len(xs), 2*xs[0].shape[-1]))
+
+
+
+
+            init_state = init_state_zeros
+
+            batch_loss = sess.run(loss,
+                                  feed_dict={self.x: xs,
+                                             self.y: ys,
+                                             self.istate: init_state})
+            loss_seq_total += batch_loss
+
+            loss_seq_avg = loss_seq_total / xs.shape[0]
+            # print "Avg loss for " + sequence_name + ": " + str(loss_seq_avg)
+            loss_dataset_total += loss_seq_avg
+
+        print('Total loss of Dataset: %f \n', loss_dataset_total)
+        return loss_dataset_total
 
     def ROLO(self):
         print("Initializing ROLO")
