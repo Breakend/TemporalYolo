@@ -3,14 +3,79 @@ A class for loading data, in particular loading YOLO features in batches
 """
 import os
 
+
+def load_regular_coord_by_line(line):
+    """
+    Note this is borrowed from original rolo code
+    """
+    elems = line.split('\t')
+    if len(elems) < 4:
+        elems = line.split(',')
+        if len(elems) < 4:
+            elems = line.split(' ')
+
+    [X1, Y1, W, H] = elems[0:4]
+    coord_regular = [int(X1), int(Y1), int(W), int(H)]
+    return coord_regular
+
+
+def coord_regular_to_decimal(coord_regular, img_wid, img_ht):
+    """
+    Note this is borrowed from original rolo code
+    """
+    img_wid *= 1.0
+    img_ht *= 1.0
+    coord_decimal = list(coord_regular)
+
+    # convert top-left point (x,y) to mid point (x, y)
+    coord_decimal[0] += coord_regular[2] / 2.0
+    coord_decimal[1] += coord_regular[3] / 2.0
+
+    # convert to [0, 1]
+    coord_decimal[0] /= img_wid
+    coord_decimal[1] /= img_ht
+    coord_decimal[2] /= img_wid
+    coord_decimal[3] /= img_ht
+
+    return coord_decimal
+
+
+
+
 class BatchLoader:
 
     def __init__(self, data_filepath, seq_len=6, batch_size=1, step_size=5, folders_to_use=None):
         self.batches = self.generate_batches(data_filepath, seq_len, batch_size, folders_to_use, step_size)
 
     def load_batch(self, batch_id):
-        #TODO:
-        return None
+        batch = self.batches[batch_id]
+        batch_xs = []
+        batch_ys = []
+        vec_len = 4102
+        for ground_truth_filepath, frames, frame_ids in batch:
+            import pdb; pdb.set_trace()
+            with open(ground_truth_filepath) as gt_file:
+                lines = gt_file.readlines()
+                for x in frame_ids:
+                    #frame ids are 1 indexed
+                    reg_coords = load_regular_coord_by_line(lines[x-1])
+                    decimal_coords = coord_regular_to_decimal(reg_coords, img_wid, img_ht)
+                    batch_ys.append(decimal_coords)
+
+            for frame in frames:
+                vec_from_file = np.load(file_path)
+                vec_from_file = np.flatten(vec_from_file)
+                vec_len = vec_from_file.shape[0]
+                # TODO: may need to remove category/etc
+                batch_xs.append(vec_from_file)
+
+        batch_xs = np.array(batch_xs)
+        batch_ys = np.array(batch_ys)
+        batch_xs = np.reshape(batch_xs, [len(frames) * len(batch), vec_len])
+        batch_ys = np.reshape(batch_ys, [len(frames) * len(batch), vec_len])
+
+        batch_xs, batch_ys
+
 
     def generate_batches(self, data_filepath, seq_len=6, batch_size=1, folders_to_use=None, step_size=5):
         """Expects a folder structure in the format:
@@ -41,7 +106,6 @@ class BatchLoader:
         for f in folders_to_use:
             frames_per_folder[f] = [ fi for fi in os.listdir(os.path.join(os.path.join(data_filepath, f), 'yolo_out/')) if fi.endswith('.npy') ]
 
-        #TODO: make step_size variable so that we don't just offset the training batches by a few frames
         current_step = 1
         possible_batches = []
         while True:
@@ -55,9 +119,11 @@ class BatchLoader:
                     failure_count += 1
                     continue
 
-                frames = ["%04d.npy" % x for x in range(current_step, current_step + seq_len)]
+                frames = [os.path.join(*[data_filepath, f, 'yolo_out/',"%04d.npy" % x]) for x in range(current_step, current_step + seq_len)]
                 frame_ids = [x for x in range(current_step, current_step + seq_len)]
-                possible_batches.append(("%s/groundtruth_rect.txt" % f, frames, frame_ids))
+                # import pdb; pdb.set_trace()
+                # TODO: load sample image to collect image height and width data
+                possible_batches.append((os.path.join(*[data_filepath, f, "groundtruth_rect.txt"]), frames, frame_ids))
 
             if failure_count >= len(folders_to_use):
                 # all our folders are out of possible sequences
