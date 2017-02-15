@@ -5,14 +5,14 @@ import os
 
 class BatchLoader:
 
-    def __init__(self, data_filepath, seq_len=6, batch_size=1, folders_to_use=None):
-        self.batches = self.generate_batches(data_filepath, seq_len, batch_size, folders_to_use)
+    def __init__(self, data_filepath, seq_len=6, batch_size=1, step_size=5, folders_to_use=None):
+        self.batches = self.generate_batches(data_filepath, seq_len, batch_size, folders_to_use, step_size)
 
     def load_batch(self, batch_id):
         #TODO:
         return None
 
-    def generate_batches(self, data_filepath, seq_len=6, batch_size=1, folders_to_use=None):
+    def generate_batches(self, data_filepath, seq_len=6, batch_size=1, folders_to_use=None, step_size=5):
         """Expects a folder structure in the format:
            -data_filepath
              -> folders_to_use[0]
@@ -37,13 +37,12 @@ class BatchLoader:
             raise Exception("TODO: default to listing directories, but for now need to pass a list of directories")
 
         frames_per_folder = {}
-
+        # import pdb; pdb.set_trace()
         for f in folders_to_use:
-            frames_per_folder[f] = [ fi for fi in os.listdir(os.path.join(data_filepath, f)) if fi.endswith('.npy') ]
+            frames_per_folder[f] = [ fi for fi in os.listdir(os.path.join(os.path.join(data_filepath, f), 'yolo_out/')) if fi.endswith('.npy') ]
 
         #TODO: make step_size variable so that we don't just offset the training batches by a few frames
-        step_size = 5
-        current_step = 0
+        current_step = 1
         possible_batches = []
         while True:
             failure_count = 0
@@ -67,5 +66,6 @@ class BatchLoader:
             current_step += step_size
 
         batches = [possible_batches[x:x+batch_size] for x in xrange(0, len(possible_batches), batch_size)]
+        # print(batches)
 
         return batches
