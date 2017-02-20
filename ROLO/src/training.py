@@ -6,7 +6,8 @@ import time, random
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
-import rnn, rnn_cell, cv2
+# from tensorflow.python.ops import rnn
+from tensorflow.contrib.rnn import LSTMCell
 
 # from testing import test
 from shared_utils.data import BatchLoader
@@ -28,8 +29,8 @@ class ROLO_TF:
     lamda = 1.0
 
     # Path
-    rolo_weights_file = '../rolo_weights.ckpt'
-    rolo_current_save = '../rolo_weights_temp.ckpt'
+    rolo_weights_file = 'weights/rolo_weights.ckpt'
+    rolo_current_save = 'weights/rolo_weights_temp.ckpt'
 
     # Vector
     len_feat = 4096
@@ -60,15 +61,16 @@ class ROLO_TF:
         _X = tf.transpose(_X, [1, 0, 2])
         ''' shape: (nsteps, batchsize, len_vec) '''
         _X = tf.reshape(_X, [self.nsteps * self.batchsize, self.len_vec])
+        # import pdb; pdb.set_trace()
         ''' shape: n_steps * (batchsize, len_vec) '''
-        _X = tf.split(0, self.nsteps, _X)
+        _X = tf.split(_X, num_or_size_splits=self.nsteps, axis=0)
 
-        lstm_cell = tf.nn.rnn_cell.LSTMCell(self.len_vec, self.len_vec, state_is_tuple = False)
+        lstm_cell = tf.contrib.rnn.LSTMCell(self.len_vec, self.len_vec, state_is_tuple = False)
         state = _istate
-        for step in range(self.nsteps):
-            pred, state = rnn.rnn(lstm_cell, [_X[step]], state, dtype=tf.float32)
-            tf.get_variable_scope().reuse_variables()
-            if step == 0:   output_state = state
+        # for step in range(self.nsteps):
+        pred, output_state = tf.contrib.rnn.static_rnn(lstm_cell, _X, state, dtype=tf.float32)
+        # tf.get_variable_scope().reuse_variables()
+            # if step == 0:   output_state = state
 
         batch_pred_feats = pred[0][:, 0:4096]
         batch_pred_coords = pred[0][:, 4097:4101]
@@ -92,9 +94,9 @@ class ROLO_TF:
         ''' Summary for tensorboard analysis '''
         dataset_loss = -1
         dataset_loss_best = 100
-        test_writer = tf.train.SummaryWriter('summary/test')
-        tf.scalar_summary('dataset_loss', dataset_loss)
-        summary_op = tf.merge_all_summaries()
+        test_writer = tf.summary.FileWriter('summary/test')
+        tf.summary.scalar('dataset_loss', dataset_loss)
+        summary_op = tf.summary.merge_all()
 
         ''' Initializing the variables '''
         init = tf.initialize_all_variables()
@@ -189,6 +191,8 @@ class ROLO_TF:
     def test(self, sess, loss, batch_loader):
         loss_dataset_total = 0
         #TODO: put outputs somewhere
+        batch_pred_feats, batch_pred_coords, self.final_state = self.LSTM('lstm', self.x, self.istate)
+
         output_path = os.path.join('rolo_loc_test/')
         for batch_id in range(len(batch_loader.batches)):
             xs, ys = batch_loader.load_batch(batch_id)
@@ -196,8 +200,13 @@ class ROLO_TF:
 
             init_state_zeros = np.zeros((len(xs), 2*xs[0].shape[-1]))
 
+            pred_location = sess.run(batch_pred_coords,feed_dict={self.x: xs, self.y: ys, self.istate: batch_states})
+            # TODO: output rolo prediction
 
+            # TODO: should do a consecutive video? (it will already do this by default with the staggered steps)
 
+            # TODO: output image with bounding box, see:
+            # https://github.com/Guanghan/ROLO/blob/6612007e35edb73dac734e7a4dac2cd4c1dca6c1/update/utils/utils_draw_coord.py
 
             init_state = init_state_zeros
 
