@@ -42,15 +42,24 @@ def coord_regular_to_decimal(coord_regular, img_wid, img_ht):
     return coord_decimal
 
 
-
+def iou(box1,box2):
+    """
+    NOTE: this is borrowed from ROLO code
+    """
+    tb = min(box1[0]+0.5*box1[2],box2[0]+0.5*box2[2])-max(box1[0]-0.5*box1[2],box2[0]-0.5*box2[2])
+    lr = min(box1[1]+0.5*box1[3],box2[1]+0.5*box2[3])-max(box1[1]-0.5*box1[3],box2[1]-0.5*box2[3])
+    if tb < 0 or lr < 0 : intersection = 0
+    else : intersection =  tb*lr
+    return intersection / (box1[2]*box1[3] + box2[2]*box2[3] - intersection)
 
 class BatchLoader:
 
     def __init__(self, data_filepath, seq_len=6, batch_size=1, step_size=1, folders_to_use=None):
         self.batches = self.generate_batches(data_filepath, seq_len, batch_size, folders_to_use, step_size)
+        self.batch_size = batch_size
 
     def load_batch(self, batch_id):
-        batch = self.batches[batch_id]
+        batch = self.batches[batch_id % len(self.batches)] # allow indexing past the amount of batches available
         batch_xs = []
         batch_ys = []
         vec_len = 4102
@@ -73,12 +82,24 @@ class BatchLoader:
                 # TODO: may need to remove category/etc
                 batch_xs.append(vec_from_file)
 
-        batch_xs = np.array(batch_xs)
-        batch_ys = np.array(batch_ys)
+        # if len(batch_xs) != self.batch_size:
+        # Hack to fill a batch, dunno why, but not working properly right now otherswise
+        # import pdb; pdb.set_trace()
+
         batch_xs = np.reshape(batch_xs, [len(batch), len(frames), vec_len])
         batch_ys = np.reshape(batch_ys, [len(batch), 4])
 
-        batch_xs, batch_ys
+        while len(batch_xs) < self.batch_size:
+            batch_xs = np.append(batch_xs, batch_xs[0].reshape((1, batch_xs.shape[1], batch_xs.shape[2])), axis=0)
+        while len(batch_ys) < self.batch_size:
+            # import pdb; pdb.set_trace()
+            batch_ys = np.append(batch_ys, batch_ys[0].reshape((1, batch_ys.shape[1])), axis=0)
+        batch_xs = np.array(batch_xs)
+        batch_ys = np.array(batch_ys)
+
+        assert batch_xs.shape[0] == batch_ys.shape[0]
+        assert batch_xs.shape[0] == self.batch_size
+        assert batch_ys.shape[0] == self.batch_size
         return batch_xs, batch_ys
 
     def generate_batches(self, data_filepath, seq_len=6, batch_size=1, folders_to_use=None, step_size=1):

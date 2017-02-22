@@ -6,11 +6,9 @@ import time, random
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
-# from tensorflow.python.ops import rnn
-from tensorflow.contrib.rnn import LSTMCell
 
 # from testing import test
-from shared_utils.data import BatchLoader
+from shared_utils.data import *
 
 
 class ROLO_TF:
@@ -72,24 +70,68 @@ class ROLO_TF:
         # tf.get_variable_scope().reuse_variables()
             # if step == 0:   output_state = state
 
+        # import pdb; pdb.set_trace()
         batch_pred_feats = pred[0][:, 0:4096]
-        batch_pred_coords = pred[0][:, 4097:4101]
-        return batch_pred_feats, batch_pred_coords, output_state
+        batch_pred_coords = pred[0][:, 4096:4100]
+        batch_pred_confs = pred[0][:, 4100]
+        return batch_pred_feats, batch_pred_coords, batch_pred_confs, output_state
 
+
+    def iou(self, boxes1, boxes2):
+        """calculate ious
+        Args:
+          boxes1: 4-D tensor [CELL_SIZE, CELL_SIZE, BOXES_PER_CELL, 4]  ====> (x_center, y_center, w, h)
+          boxes2: 1-D tensor [4] ===> (x_center, y_center, w, h)
+        Return:
+          iou: 3-D tensor [CELL_SIZE, CELL_SIZE, BOXES_PER_CELL]
+        """
+        import pdb; pdb.set_trace()
+        boxes1 = tf.stack([boxes1[:,0] - boxes1[:,2] / 2, boxes1[:,1] - boxes1[:,3] / 2,
+                          boxes1[:,0] + boxes1[:,2] / 2, boxes1[:,1] + boxes1[:,3] / 2])
+        # boxes1 = tf.transpose(boxes1)
+        boxes2 =  tf.stack([boxes2[:,0] - boxes2[:,2] / 2, boxes2[:,1] - boxes2[:,3] / 2,
+                          boxes2[:,0] + boxes2[:,2] / 2, boxes2[:,1] + boxes2[:,3] / 2])
+
+        #calculate the left up point
+        lu = tf.maximum(boxes1[0:2], boxes2[0:2])
+        rd = tf.minimum(boxes1[2:], boxes2[2:])
+
+        #intersection
+        intersection = rd - lu
+
+        inter_square = intersection[0] * intersection[1]
+
+        mask = tf.cast(intersection[0] > 0, tf.float32) * tf.cast(intersection[1] > 0, tf.float32)
+
+        inter_square = mask * inter_square
+
+        #calculate the boxs1 square and boxs2 square
+        square1 = (boxes1[2] - boxes1[0]) * (boxes1[3] - boxes1[1])
+        square2 = (boxes2[2] - boxes2[0]) * (boxes2[3] - boxes2[1])
+
+        return inter_square/(square1 + square2 - inter_square + 1e-6)
 
     # Routines: Train & Test
     def train(self):
         ''' Network '''
-        batch_pred_feats, batch_pred_coords, self.final_state = self.LSTM('lstm', self.x, self.istate)
+        batch_pred_feats, batch_pred_coords, batch_pred_confs, self.final_state = self.LSTM('lstm', self.x, self.istate)
 
         ''' Loss: L2 '''
         loss = tf.reduce_mean(tf.square(self.y - batch_pred_coords)) * 100
+
+        iou_predict_truth = self.iou(batch_pred_coords, self.y[:,0:4])
+
+        ''' confidence loss'''
+
+        object_loss = tf.reduce_mean(tf.nn.l2_loss((batch_pred_confs - iou_predict_truth)))
+        # noobject_loss = tf.nn.l2_loss(no_I * (p_C)) * self.noobject_scale
+
 
         ''' regularization term: L2 '''
         regularization_term = tf.reduce_mean(tf.square(self.x[:, self.nsteps-1, 0:4096] - batch_pred_feats)) * 100
 
         ''' Optimizer '''
-        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(loss  + self.lamda * regularization_term) # Adam Optimizer
+        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(loss + object_loss + self.lamda * regularization_term) # Adam Optimizer
 
         ''' Summary for tensorboard analysis '''
         dataset_loss = -1
@@ -191,7 +233,7 @@ class ROLO_TF:
     def test(self, sess, loss, batch_loader):
         loss_dataset_total = 0
         #TODO: put outputs somewhere
-        batch_pred_feats, batch_pred_coords, self.final_state = self.LSTM('lstm', self.x, self.istate)
+        batch_pred_feats, batch_pred_coords, batch_pred_confs, self.final_state = self.LSTM('lstm', self.x, self.istate)
 
         output_path = os.path.join('rolo_loc_test/')
         for batch_id in range(len(batch_loader.batches)):
@@ -201,7 +243,9 @@ class ROLO_TF:
             init_state_zeros = np.zeros((len(xs), 2*xs[0].shape[-1]))
 
             pred_location = sess.run(batch_pred_coords,feed_dict={self.x: xs, self.y: ys, self.istate: batch_states})
+
             # TODO: output rolo prediction
+            # batch_pred_confs 
 
             # TODO: should do a consecutive video? (it will already do this by default with the staggered steps)
 
