@@ -13,13 +13,14 @@ from shared_utils.data import *
 
 class ROLO_TF:
     # Buttons
-    validate = False
-    validate_step = 1000
+    validate = True
+    validate_step = 50
     display_validate = True
-    save_step = 1000
+    save_step = 50
     display_step = 1
     restore_weights = True
     display_coords = False
+    display_object_loss = True
     display_regu = False
 
     # Magic numbers
@@ -90,26 +91,30 @@ class ROLO_TF:
         # import pdb; pdb.set_trace()
         boxes1 = tf.stack([boxes1[:,0] - boxes1[:,2] / 2, boxes1[:,1] - boxes1[:,3] / 2,
                           boxes1[:,0] + boxes1[:,2] / 2, boxes1[:,1] + boxes1[:,3] / 2])
-        # boxes1 = tf.transpose(boxes1)
+        # # boxes1 = tf.transpose(boxes1)
         boxes2 =  tf.stack([boxes2[:,0] - boxes2[:,2] / 2, boxes2[:,1] - boxes2[:,3] / 2,
                           boxes2[:,0] + boxes2[:,2] / 2, boxes2[:,1] + boxes2[:,3] / 2])
+        # Assumes boxes 1 is the
+        # boxes1[:,0] = boxes1[:,0] - boxes1[:,2]/2
+        # boxes1[:,1] = boxes1[:,1] - boxes1[:,3]/2
 
         #calculate the left up point
+        # import pdb; pdb.set_trace()
         lu = tf.maximum(boxes1[0:2], boxes2[0:2])
         rd = tf.minimum(boxes1[2:], boxes2[2:])
 
         #intersection
         intersection = rd - lu
 
-        inter_square = intersection[0] * intersection[1]
+        inter_square = tf.multiply(intersection[0],intersection[1])
 
         mask = tf.cast(intersection[0] > 0, tf.float32) * tf.cast(intersection[1] > 0, tf.float32)
 
-        inter_square = mask * inter_square
+        inter_square = tf.multiply(mask,inter_square)
 
         #calculate the boxs1 square and boxs2 square
-        square1 = (boxes1[2] - boxes1[0]) * (boxes1[3] - boxes1[1])
-        square2 = (boxes2[2] - boxes2[0]) * (boxes2[3] - boxes2[1])
+        square1 = tf.multiply((boxes1[2] - boxes1[0]) ,(boxes1[3] - boxes1[1]))
+        square2 = tf.multiply((boxes2[2] - boxes2[0]),(boxes2[3] - boxes2[1]))
 
         return inter_square/(square1 + square2 - inter_square + 1e-6)
 
@@ -125,7 +130,8 @@ class ROLO_TF:
 
         ''' confidence loss'''
 
-        object_loss = tf.reduce_mean(tf.nn.l2_loss((batch_pred_confs - iou_predict_truth)))
+        object_loss = tf.reduce_mean(tf.nn.l2_loss((batch_pred_confs - iou_predict_truth))) * 100
+        # ave_iou = tf.reduce_mean(iou_predict_truth)
         # noobject_loss = tf.nn.l2_loss(no_I * (p_C)) * self.noobject_scale
 
 
@@ -189,6 +195,13 @@ class ROLO_TF:
                                                      self.y: batch_ys,
                                                      self.istate: batch_states})
                     print("Batch loss for iteration %d: %.3f" % (self.iter_id, batch_loss))
+                if self.display_object_loss:
+                    ''' Calculate batch object loss '''
+                    batch_o_loss = sess.run(object_loss,
+                                          feed_dict={self.x: batch_xs,
+                                                     self.y: batch_ys,
+                                                     self.istate: batch_states})
+                    print("Object loss for iteration %d: %.3f" % (self.iter_id, batch_o_loss))
 
                 if self.display_regu is True:
                     ''' Caculate regularization term'''
@@ -213,10 +226,10 @@ class ROLO_TF:
                     print("\n Model saved in file: %s" % self.rolo_current_save)
 
                 ''' Validation '''
-                if self.validate == True and self.iter_id % self.validate_step == 0:
+                if self.validate == True and self.iter_id % self.validate_step == 0 and self.iter_id > 0:
                     # Run validation set
 
-                    dataset_loss = self.test(sess, loss, validation_set_loader)
+                    dataset_loss = self.test(sess, loss, validation_set_loader, batch_pred_feats, batch_pred_coords, batch_pred_confs, self.final_state)
 
                     ''' Early-stop regularization '''
                     if dataset_loss <= dataset_loss_best:
@@ -232,24 +245,34 @@ class ROLO_TF:
         return
 
 
-    def test(self, sess, loss, batch_loader):
+    def test(self, sess, loss, batch_loader, batch_pred_feats, batch_pred_coords, batch_pred_confs, final_state):
         loss_dataset_total = 0
         #TODO: put outputs somewhere
-        batch_pred_feats, batch_pred_coords, batch_pred_confs, self.final_state = self.LSTM('lstm', self.x, self.istate)
+        # batch_pred_feats, batch_pred_coords, batch_pred_confs, self.final_state = self.LSTM('lstm', self.x, self.istate)
+        batch_states = np.zeros((self.batchsize, 2*self.len_vec))
+        iou_predict_truth = tf.reduce_mean(self.iou(batch_pred_coords, self.y[:,0:4]))
 
         output_path = os.path.join('rolo_loc_test/')
+        iou_averages = []
         for batch_id in range(len(batch_loader.batches)):
+            print("Validation batch %d" % batch_id)
             xs, ys = batch_loader.load_batch(batch_id)
             loss_seq_total = 0
 
             init_state_zeros = np.zeros((len(xs), 2*xs[0].shape[-1]))
 
-            pred_location = sess.run(batch_pred_coords,feed_dict={self.x: xs, self.y: ys, self.istate: batch_states})
+            pred_location, pred_confs = sess.run([batch_pred_coords, batch_pred_confs],feed_dict={self.x: xs, self.y: ys, self.istate: batch_states})
 
-            # TODO: output rolo prediction
-            # batch_pred_confs
+            # for i in range(len(pred_confs)):
+            for i, loc in enumerate(pred_location):
+                print("predicted")
+                print(pred_location[i])
+                print("gold")
+                print(ys[i])
+                print("confidence")
+                print(pred_confs[i])
 
-            # TODO: should do a consecutive video? (it will already do this by default with the staggered steps)
+            # TODO: confidence interval to predict whether we have a box or not
 
             # TODO: output image with bounding box, see:
             # https://github.com/Guanghan/ROLO/blob/6612007e35edb73dac734e7a4dac2cd4c1dca6c1/update/utils/utils_draw_coord.py
@@ -260,13 +283,24 @@ class ROLO_TF:
                                   feed_dict={self.x: xs,
                                              self.y: ys,
                                              self.istate: init_state})
+            iou_ground_truth = sess.run(iou_predict_truth,
+                                  feed_dict={self.x: xs,
+                                             self.y: ys,
+                                             self.istate: init_state})
             loss_seq_total += batch_loss
 
+            # TODO: only do this if we have a prediction
+            # iou_ground_truth_total += iou_ground_truth
+
             loss_seq_avg = loss_seq_total / xs.shape[0]
+            iou_seq_avg = iou_ground_truth
+
             # print "Avg loss for " + sequence_name + ": " + str(loss_seq_avg)
             loss_dataset_total += loss_seq_avg
+            iou_averages.append(iou_seq_avg)
 
         print('Total loss of Dataset: %f \n', loss_dataset_total)
+        print('Average iou with ground truth: %f \n', np.mean(iou_averages))
         return loss_dataset_total
 
     def ROLO(self):
