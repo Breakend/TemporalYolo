@@ -78,14 +78,16 @@ class ROLO_TF:
 
 
     def iou(self, boxes1, boxes2):
-        """calculate ious
+        """
+        Note: Modified from https://github.com/nilboy/tensorflow-yolo/blob/python2.7/yolo/net/yolo_net.py
+        calculate ious
         Args:
           boxes1: 4-D tensor [CELL_SIZE, CELL_SIZE, BOXES_PER_CELL, 4]  ====> (x_center, y_center, w, h)
           boxes2: 1-D tensor [4] ===> (x_center, y_center, w, h)
         Return:
           iou: 3-D tensor [CELL_SIZE, CELL_SIZE, BOXES_PER_CELL]
         """
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         boxes1 = tf.stack([boxes1[:,0] - boxes1[:,2] / 2, boxes1[:,1] - boxes1[:,3] / 2,
                           boxes1[:,0] + boxes1[:,2] / 2, boxes1[:,1] + boxes1[:,3] / 2])
         # boxes1 = tf.transpose(boxes1)
@@ -245,7 +247,7 @@ class ROLO_TF:
             pred_location = sess.run(batch_pred_coords,feed_dict={self.x: xs, self.y: ys, self.istate: batch_states})
 
             # TODO: output rolo prediction
-            # batch_pred_confs 
+            # batch_pred_confs
 
             # TODO: should do a consecutive video? (it will already do this by default with the staggered steps)
 
