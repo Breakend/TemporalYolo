@@ -31,11 +31,13 @@ class ROLO_TF:
     rolo_weights_file = 'weights/rolo_weights.ckpt'
     rolo_current_save = 'weights/rolo_weights_temp.ckpt'
 
-    # Vector
+    # Vector for very small model
+    # len_feat = 1080
+    # Vector for 4096 features model
     len_feat = 4096
     len_predict = 6
     len_coord = 4
-    len_vec = 4102
+    len_vec = len_feat + len_predict
 
     # Batch
     nsteps = 3
@@ -72,9 +74,9 @@ class ROLO_TF:
             # if step == 0:   output_state = state
 
         # import pdb; pdb.set_trace()
-        batch_pred_feats = pred[0][:, 0:4096]
-        batch_pred_coords = pred[0][:, 4096:4100]
-        batch_pred_confs = pred[0][:, 4100]
+        batch_pred_feats = pred[0][:, 0:self.len_feat]
+        batch_pred_coords = pred[0][:, self.len_feat:self.len_feat+self.len_coord]
+        batch_pred_confs = pred[0][:, self.len_feat+self.len_coord]
         return batch_pred_feats, batch_pred_coords, batch_pred_confs, output_state
 
 
@@ -136,7 +138,7 @@ class ROLO_TF:
 
 
         ''' regularization term: L2 '''
-        regularization_term = tf.reduce_mean(tf.square(self.x[:, self.nsteps-1, 0:4096] - batch_pred_feats)) * 100
+        regularization_term = tf.reduce_mean(tf.square(self.x[:, self.nsteps-1, 0:self.len_feat] - batch_pred_feats)) * 100
 
         ''' Optimizer '''
         optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(loss + object_loss + self.lamda * regularization_term) # Adam Optimizer

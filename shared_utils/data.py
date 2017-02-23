@@ -62,7 +62,8 @@ class BatchLoader:
         batch = self.batches[batch_id % len(self.batches)] # allow indexing past the amount of batches available
         batch_xs = []
         batch_ys = []
-        vec_len = 4102
+        vec_len = 4102 # Length for 4096 feature vector
+        # vec_len = 1084 # Length for 1080 feature vector
         # import pdb; pdb.set_trace()
         for ground_truth_filepath, frames, frame_ids, width, height in batch:
             # import pdb; pdb.set_trace()
