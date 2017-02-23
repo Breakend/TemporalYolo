@@ -11,12 +11,14 @@ import matplotlib.pyplot as plt
 from shared_utils.data import *
 
 
+
 class ROLO_TF:
     # Buttons
     validate = True
     validate_step = 500
     display_validate = True
     save_step = 50
+    bidirectional = False
     display_step = 1
     restore_weights = True
     display_coords = False
@@ -49,16 +51,22 @@ class ROLO_TF:
     # Data
     x = tf.placeholder("float32", [None, nsteps, len_vec])
     y = tf.placeholder("float32", [None, len_coord])
-    istate = tf.placeholder("float32", [None, 2*len_vec])
+    # istate = tf.placeholder("float32", [None, 2*len_vec])
     list_batch_pairs = []
 
     # Initializing
-    def __init__(self, argvs = []):
+    def __init__(self, kwargs):
+        # TODO: do this the proper way **kwargs
         print("ROLO Initializing")
+        if 'num_layers' in kwargs:
+            self.number_of_layers = kwargs['num_layers']
+        if 'bidirectional' in kwargs:
+            self.bidirectional = kwargs['bidirectional']
+
         self.ROLO()
 
     # Routines: Network
-    def LSTM(self, name,  _X, _istate):
+    def LSTM(self, name,  _X):
         ''' shape: (batchsize, nsteps, len_vec) '''
         _X = tf.transpose(_X, [1, 0, 2])
         ''' shape: (nsteps, batchsize, len_vec) '''
@@ -67,14 +75,18 @@ class ROLO_TF:
         ''' shape: n_steps * (batchsize, len_vec) '''
         _X = tf.split(_X, num_or_size_splits=self.nsteps, axis=0)
 
-        lstm_cell = tf.contrib.rnn.LSTMCell(self.len_vec, self.len_vec, state_is_tuple = False)
-        state = _istate
-        # for step in range(self.nsteps):
-        pred, output_state = tf.contrib.rnn.static_rnn(lstm_cell, _X, state, dtype=tf.float32)
-        # tf.get_variable_scope().reuse_variables()
-            # if step == 0:   output_state = state
 
-        # import pdb; pdb.set_trace()
+        cell = tf.contrib.rnn.LSTMCell(self.len_vec, self.len_vec, state_is_tuple = False)
+
+        # TODO: use dropout???
+        # cell = DropoutWrapper(cell, output_keep_prob=dropout)
+
+        lstm_cell = tf.contrib.rnn.MultiRNNCell([cell] * self.number_of_layers, state_is_tuple=False)
+
+        state = lstm_cell.zero_state(self.batchsize, tf.float32)
+
+        pred, output_state = tf.contrib.rnn.static_rnn(lstm_cell, _X, state, dtype=tf.float32)
+
         batch_pred_feats = pred[0][:, 0:self.len_feat]
         batch_pred_coords = pred[0][:, self.len_feat:self.len_feat+self.len_coord]
         batch_pred_confs = pred[0][:, self.len_feat+self.len_coord]
@@ -124,7 +136,7 @@ class ROLO_TF:
     # Routines: Train & Test
     def train(self):
         ''' Network '''
-        batch_pred_feats, batch_pred_coords, batch_pred_confs, self.final_state = self.LSTM('lstm', self.x, self.istate)
+        batch_pred_feats, batch_pred_coords, batch_pred_confs, self.final_state = self.LSTM('lstm', self.x)
 
         ''' Loss: L2 '''
         loss = tf.reduce_mean(tf.square(self.y - batch_pred_coords)) * 100
@@ -141,8 +153,10 @@ class ROLO_TF:
         ''' regularization term: L2 '''
         regularization_term = tf.reduce_mean(tf.square(self.x[:, self.nsteps-1, 0:self.len_feat] - batch_pred_feats)) * 100
 
+        minimize_iou = (1.0 - tf.reduce_mean(iou_predict_truth)) * 100
+
         ''' Optimizer '''
-        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(loss + object_loss + self.lamda * regularization_term) # Adam Optimizer
+        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(loss + object_loss + minimize_iou + self.lamda * regularization_term) # Adam Optimizer
 
         ''' Summary for tensorboard analysis '''
         dataset_loss = -1
@@ -181,10 +195,6 @@ class ROLO_TF:
 
                 batch_xs, batch_ys = batch_loader.load_batch(batch_id)
 
-                # import pdb; pdb.set_trace()
-                # import pdb; pdb.set_trace()
-
-
                 # ''' Reshape data '''
                 # batch_xs = np.reshape(batch_xs, [self.batchsize, self.nsteps, self.len_vec])
                 # batch_ys = np.reshape(batch_ys, [self.batchsize, 4])
@@ -192,46 +202,40 @@ class ROLO_TF:
                 ''' Update weights by back-propagation '''
                 # import pdb; pdb.set_trace()
                 sess.run(optimizer, feed_dict={self.x: batch_xs,
-                                               self.y: batch_ys,
-                                               self.istate: batch_states})
+                                               self.y: batch_ys})
 
                 if self.iter_id % self.display_step == 0:
                     ''' Calculate batch loss '''
                     batch_loss = sess.run(loss,
                                           feed_dict={self.x: batch_xs,
-                                                     self.y: batch_ys,
-                                                     self.istate: batch_states})
+                                                     self.y: batch_ys})
                     print("Batch loss for iteration %d: %.3f" % (self.iter_id, batch_loss))
                 if self.display_object_loss:
                     ''' Calculate batch object loss '''
                     batch_o_loss = sess.run(object_loss,
                                           feed_dict={self.x: batch_xs,
-                                                     self.y: batch_ys,
-                                                     self.istate: batch_states})
+                                                     self.y: batch_ys})
                     print("Object loss for iteration %d: %.3f" % (self.iter_id, batch_o_loss))
 
                 if self.iou_with_ground_truth:
                     ''' Calculate batch object loss '''
                     batch_o_loss = sess.run(tf.reduce_mean(iou_predict_truth),
                                           feed_dict={self.x: batch_xs,
-                                                     self.y: batch_ys,
-                                                     self.istate: batch_states})
+                                                     self.y: batch_ys})
                     print("Average with ground for iteration %d: %.3f" % (self.iter_id, batch_o_loss))
 
                 if self.display_regu is True:
                     ''' Caculate regularization term'''
                     batch_regularization = sess.run(regularization_term,
                                                     feed_dict={self.x: batch_xs,
-                                                               self.y: batch_ys,
-                                                               self.istate: batch_states})
+                                                               self.y: batch_ys})
                     print("Batch regu for iteration %d: %.3f" % (self.iter_id, batch_regularization))
 
                 if self.display_coords is True:
                     ''' Caculate predicted coordinates '''
                     coords_predict = sess.run(batch_pred_coords,
                                               feed_dict={self.x: batch_xs,
-                                                         self.y: batch_ys,
-                                                         self.istate: batch_states})
+                                                         self.y: batch_ys})
                     print("predicted coords:" + str(coords_predict[0]))
                     print("ground truth coords:" + str(batch_ys[0]))
 
@@ -254,8 +258,7 @@ class ROLO_TF:
 
                     ''' Write summary for tensorboard '''
                     summary = sess.run(summary_op, feed_dict={self.x: batch_xs,
-                                                              self.y: batch_ys,
-                                                              self.istate: batch_states})
+                                                              self.y: batch_ys})
                     test_writer.add_summary(summary, self.iter_id)
         return
 
@@ -276,7 +279,7 @@ class ROLO_TF:
 
             init_state_zeros = np.zeros((len(xs), 2*xs[0].shape[-1]))
 
-            pred_location, pred_confs = sess.run([batch_pred_coords, batch_pred_confs],feed_dict={self.x: xs, self.y: ys, self.istate: batch_states})
+            pred_location, pred_confs = sess.run([batch_pred_coords, batch_pred_confs],feed_dict={self.x: xs, self.y: ys})
 
             # for i in range(len(pred_confs)):
             for i, loc in enumerate(pred_location):
@@ -298,12 +301,10 @@ class ROLO_TF:
 
             batch_loss = sess.run(loss,
                                   feed_dict={self.x: xs,
-                                             self.y: ys,
-                                             self.istate: init_state})
+                                             self.y: ys})
             iou_ground_truth = sess.run(iou_predict_truth,
                                   feed_dict={self.x: xs,
-                                             self.y: ys,
-                                             self.istate: init_state})
+                                             self.y: ys})
             loss_seq_total += batch_loss
 
             # TODO: only do this if we have a prediction
@@ -327,7 +328,13 @@ class ROLO_TF:
 
 '''----------------------------------------main-----------------------------------------------------'''
 def main(argvs):
-    ROLO_TF(argvs)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-n", type=int, default=1, help="number of layers of LSTM to use, defaults to 1")
+    parser.add_argument("-b", type=bool, default=False, help="Whether to use a bidirectional LSTM")
+    args = parser.parse_args()
+
+    ROLO_TF({'num_layers' : args.n, "bidirectional" : args.b})
 
 if __name__ == "__main__":
     main(' ')
