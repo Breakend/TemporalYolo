@@ -5,6 +5,25 @@ import os
 import cv2
 import numpy as np
 
+def debug_3_locations( img, gt_location, yolo_location, rolo_location):
+    """
+    Note this is borrowed from original rolo code
+    """
+    img_cp = img.copy()
+    for i in range(3):  # b-g-r channels
+        if i== 0: location= gt_location; color= (0, 0, 255)       # red for gt
+        elif i ==1: location= yolo_location; color= (255, 0, 0)   # blur for yolo
+        elif i ==2: location= rolo_location; color= (0, 255, 0)   # green for rolo
+        x = int(location[0])
+        y = int(location[1])
+        w = int(location[2])
+        h = int(location[3])
+        if i == 1 or i== 2: cv2.rectangle(img_cp,(x-w//2, y-h//2),(x+w//2,y+h//2), color, 2)
+        elif i== 0: cv2.rectangle(img_cp,(x,y),(x+w,y+h), color, 2)
+    cv2.imshow('3 locations',img_cp)
+    cv2.waitKey(100)
+    return img_cp
+
 
 def load_regular_coord_by_line(line):
     """
@@ -62,8 +81,8 @@ class BatchLoader:
         batch = self.batches[batch_id % len(self.batches)] # allow indexing past the amount of batches available
         batch_xs = []
         batch_ys = []
-        vec_len = 4102 # Length for 4096 feature vector
-        # vec_len = 1084 # Length for 1080 feature vector
+        # vec_len = 4102 # Length for 4096 feature vector
+        vec_len = 1086 # Length for 1080 feature vector
         # import pdb; pdb.set_trace()
         for ground_truth_filepath, frames, frame_ids, width, height in batch:
             # import pdb; pdb.set_trace()

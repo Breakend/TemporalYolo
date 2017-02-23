@@ -33,9 +33,9 @@ class ROLO_TF:
     rolo_current_save = 'weights/rolo_weights_temp.ckpt'
 
     # Vector for very small model
-    # len_feat = 1080
+    len_feat = 1080
     # Vector for 4096 features model
-    len_feat = 4096
+    # len_feat = 4096
     len_predict = 6
     len_coord = 4
     len_vec = len_feat + len_predict
@@ -158,9 +158,11 @@ class ROLO_TF:
 
         # TODO: make this a command line argument, etc.
         # training set loader
-        batch_loader = BatchLoader("./DATA/", seq_len=self.nsteps, batch_size=self.batchsize, step_size=1, folders_to_use=["Human3","Human4", "Human8", "Human9"])
+        # batch_loader = BatchLoader("./DATA/", seq_len=self.nsteps, batch_size=self.batchsize, step_size=1, folders_to_use=["Human3","Human4", "Human8", "Human9"])
+        batch_loader = BatchLoader("./DATA/TRAINING/", seq_len=self.nsteps, batch_size=self.batchsize, step_size=1, folders_to_use=["GOPR0005","GOPR0006","GOPR0008","GOPR0008_2","GOPR0009","GOPR0009_2","GOPR0010","GOPR0011","GOPR0012","GOPR0013","GOPR0014","GOPR0015","GOPR0016","MVI_8607","MVI_8609","MVI_8610","MVI_8612","MVI_8614","MVI_8615","MVI_8616"])
         # Validation set loader
-        validation_set_loader = BatchLoader("./VALID/", seq_len=self.nsteps, batch_size=self.batchsize, step_size=1, folders_to_use=["Human6" ,"Human7"])
+        # validation_set_loader = BatchLoader("./VALID/", seq_len=self.nsteps, batch_size=self.batchsize, step_size=1, folders_to_use=["Human6" ,"Human7"])
+        validation_set_loader = BatchLoader("./DATA/VALID/", seq_len=self.nsteps, batch_size=self.batchsize, step_size=1, folders_to_use=["bbd_2017__2017-01-09-21-40-02_cam_flimage_raw","bbd_2017__2017-01-09-21-44-31_cam_flimage_raw","bbd_2017__2017-01-09-21-48-46_cam_flimage_raw","bbd_2017__2017-01-10-16-07-49_cam_flimage_raw","bbd_2017__2017-01-10-16-21-01_cam_flimage_raw","bbd_2017__2017-01-10-16-31-57_cam_flimage_raw","bbd_2017__2017-01-10-21-43-03_cam_flimage_raw","bbd_2017__2017-01-11-20-21-32_cam_flimage_raw","bbd_2017__2017-01-11-21-02-37_cam_flimage_raw"])
 
         ''' Launch the graph '''
         with tf.Session() as sess:
