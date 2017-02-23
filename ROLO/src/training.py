@@ -85,7 +85,12 @@ class ROLO_TF:
 
         state = lstm_cell.zero_state(self.batchsize, tf.float32)
 
-        pred, output_state = tf.contrib.rnn.static_rnn(lstm_cell, _X, state, dtype=tf.float32)
+        if self.bidirectional:
+            back_cell = tf.contrib.rnn.MultiRNNCell([cell] * self.number_of_layers, state_is_tuple=False)
+            pred, output_state, back_state = tf.contrib.rnn.static_bidirectional_rnn(lstm_cell, back_cell, _X, state, dtype=tf.float32)
+
+        else:
+            pred, output_state = tf.contrib.rnn.static_rnn(lstm_cell, _X, state, dtype=tf.float32)
 
         batch_pred_feats = pred[0][:, 0:self.len_feat]
         batch_pred_coords = pred[0][:, self.len_feat:self.len_feat+self.len_coord]
@@ -331,7 +336,7 @@ def main(argvs):
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", type=int, default=1, help="number of layers of LSTM to use, defaults to 1")
-    parser.add_argument("-b", type=bool, default=False, help="Whether to use a bidirectional LSTM")
+    parser.add_argument("-b", action='store_true', default=False, help="Whether to use a bidirectional LSTM")
     args = parser.parse_args()
 
     ROLO_TF({'num_layers' : args.n, "bidirectional" : args.b})
