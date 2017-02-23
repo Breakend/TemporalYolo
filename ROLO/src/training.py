@@ -14,12 +14,13 @@ from shared_utils.data import *
 class ROLO_TF:
     # Buttons
     validate = True
-    validate_step = 50
+    validate_step = 500
     display_validate = True
     save_step = 50
     display_step = 1
     restore_weights = True
     display_coords = False
+    iou_with_ground_truth = True
     display_object_loss = True
     display_regu = False
 
@@ -177,6 +178,8 @@ class ROLO_TF:
                 batch_id = self.iter_id - self.batch_offset
 
                 batch_xs, batch_ys = batch_loader.load_batch(batch_id)
+
+                # import pdb; pdb.set_trace()
                 # import pdb; pdb.set_trace()
 
 
@@ -204,6 +207,14 @@ class ROLO_TF:
                                                      self.y: batch_ys,
                                                      self.istate: batch_states})
                     print("Object loss for iteration %d: %.3f" % (self.iter_id, batch_o_loss))
+
+                if self.iou_with_ground_truth:
+                    ''' Calculate batch object loss '''
+                    batch_o_loss = sess.run(tf.reduce_mean(iou_predict_truth),
+                                          feed_dict={self.x: batch_xs,
+                                                     self.y: batch_ys,
+                                                     self.istate: batch_states})
+                    print("Average with ground for iteration %d: %.3f" % (self.iter_id, batch_o_loss))
 
                 if self.display_regu is True:
                     ''' Caculate regularization term'''
@@ -273,6 +284,8 @@ class ROLO_TF:
                 print(ys[i])
                 print("confidence")
                 print(pred_confs[i])
+                print("numpy iou")
+                print(iou(pred_location[i], ys[i]))
 
             # TODO: confidence interval to predict whether we have a box or not
 
