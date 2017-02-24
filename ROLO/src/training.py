@@ -26,7 +26,7 @@ class ROLO_TF:
     iou_with_ground_truth = True
     display_object_loss = True
     display_regu = False
-    confidence_detection_threshold = .5
+    confidence_detection_threshold = .3
     # Magic numbers
     learning_rate = 0.0001
     lamda = 1.0
@@ -45,8 +45,8 @@ class ROLO_TF:
 
     # Batch
     nsteps = 3
-    batchsize = 16
-    n_iters = 180000
+    batchsize = 32
+    n_iters = 250000
     batch_offset = 0
 
     # Data
@@ -326,7 +326,10 @@ class ROLO_TF:
                 # TODO: this is a hack to get the video basename :(
                 base_name = im_paths[i].split("/")[-3]
                 width, height = img.shape[1::-1]
-                img_result = debug_3_locations(img, locations_normal(width, height, ys[i]), locations_normal(width, height, xs[i][-1][self.len_feat+1:-1]), locations_normal(width, height, pred_location[i]))
+                # import pdb; pdb.set_trace()
+                yolo_box = locations_normal(width, height, xs[i][-1][self.len_feat+1:-1]*int(xs[i][-1][-1] > self.confidence_detection_threshold)) #times the confidence to zero out a non-confident bounding box
+                rolo_box = locations_normal(width, height, pred_location[i] * int(pred_confs[i] > self.confidence_detection_threshold))
+                img_result = debug_3_locations(img, locations_normal(width, height, ys[i]), yolo_box, rolo_box)
                 cv2.imwrite('./results/%s_%d_%d.jpg' %(base_name, batch_id, i), img_result)
                 """
                 print("predicted")
