@@ -266,7 +266,6 @@ class ROLO_TF:
     def test(self, sess, loss, batch_loader, batch_pred_feats, batch_pred_coords, batch_pred_confs, final_state):
         loss_dataset_total = 0
         #TODO: put outputs somewhere
-        # batch_pred_feats, batch_pred_coords, batch_pred_confs, self.final_state = self.LSTM('lstm', self.x, self.istate)
         batch_states = np.zeros((self.batchsize, 2*self.len_vec))
         iou_predict_truth, intersection = self.iou(batch_pred_coords, self.y[:,0:4])
         false_positives = 0
@@ -275,7 +274,15 @@ class ROLO_TF:
         true_negatives = 0
         frames = 0
         total_prediction_time = 0.0
+
+        # TODO: move this
         output_path = os.path.join('rolo_loc_test/')
+        image_output_dir = './results'
+        if not os.path.exists(output_path):
+            os.makedirs(output_path)
+        if not os.path.exists(image_output_dir):
+            os.makedirs(image_output_dir)
+
         iou_averages = []
         intersection_averages =[]
         for batch_id in range(len(batch_loader.batches)):
@@ -301,9 +308,11 @@ class ROLO_TF:
             # TODO: clean this up, remove logging
             for i, loc in enumerate(pred_location):
                 img = cv2.imread(im_paths[i])
+                # TODO: this is a hack to get the video basename :(
+                base_name = im_paths[i].split("/")[2]
                 width, height = img.shape[1::-1]
                 img_result = debug_3_locations(img, locations_normal(width, height, ys[i]), locations_normal(width, height, xs[i][2][self.len_feat+1:-1]), locations_normal(width, height, pred_location[i]))
-                cv2.imwrite('./results/%d_%d.jpg' %(batch_id, i), img_result)
+                cv2.imwrite('./results/%s_%d_%d.jpg' %(base_name, batch_id, i), img_result)
 
                 print("predicted")
                 print(pred_location[i])

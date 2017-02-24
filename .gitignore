@@ -92,3 +92,5 @@ DATA/
 VALID/
 weights/
 summary/
+results/
+.DS_Store

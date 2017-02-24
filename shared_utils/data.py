@@ -20,7 +20,7 @@ def debug_3_locations( img, gt_location, yolo_location, rolo_location):
         h = max(int(location[3]), 0)
         # if i== 2: cv2.rectangle(img_cp,(x-w//2, y-h//2),(x+w//2,y+h//2), color, 2)
         # elif i== 0 or i == 1: cv2.rectangle(img_cp,(x,y),(x+w,y+h), color, 2)
-        cv2.rectangle(img_cp,(x,y),(x+w,y+h), color, 2)
+        cv2.rectangle(img_cp,(x-w/2,y-h/2),(x+w/2,y+h/2), color, 2)
     # cv2.imshow('3 locations',img_cp)
     # cv2.waitKey(100)
     return img_cp
@@ -95,35 +95,31 @@ class BatchLoader:
         batch_xs = []
         batch_ys = []
         im_paths = []
-        # vec_len = 4102 # Length for 4096 feature vector
-        vec_len = 1086 # Length for 1080 feature vector
-        # import pdb; pdb.set_trace()
+
         for ground_truth_filepath, frames, frame_ids, width, height in batch:
             # import pdb; pdb.set_trace()
             with open(ground_truth_filepath) as gt_file:
                 lines = gt_file.readlines()
-                # for x in frame_ids:
-                    #frame ids are 1 indexed
-                # load the frame to predict for which is the last from in the sequence
                 reg_coords = load_regular_coord_by_line(lines[frame_ids[-1]-1])
                 decimal_coords = coord_regular_to_decimal(reg_coords, width, height)
                 batch_ys.append(decimal_coords)
 
+            # append the image to draw on (the last frame in the sequence)
+            frame = frames[-1]
+            im_path = frame.replace("yolo_out", "img")
+            im_path = im_path.replace(".npy", ".jpg")
+            im_paths.append(im_path)
+
             for frame in frames:
-                im_path = frame.replace("yolo_out", "img")
-                im_path = im_path.replace(".npy", ".jpg")
-                im_paths.append(im_path)
                 vec_from_file = np.load(frame)
                 vec_from_file = np.ndarray.flatten(vec_from_file)
-                vec_len = vec_from_file.shape[0]
+
                 # TODO: may need to remove category/etc
                 batch_xs.append(vec_from_file)
 
-        # if len(batch_xs) != self.batch_size:
         # Hack to fill a batch, dunno why, but not working properly right now otherswise
-        # import pdb; pdb.set_trace()
 
-        batch_xs = np.reshape(batch_xs, [len(batch), len(frames), vec_len])
+        batch_xs = np.reshape(batch_xs, [len(batch), len(frames), -1])
         batch_ys = np.reshape(batch_ys, [len(batch), 4])
 
         while len(batch_xs) < self.batch_size:
@@ -131,6 +127,8 @@ class BatchLoader:
         while len(batch_ys) < self.batch_size:
             # import pdb; pdb.set_trace()
             batch_ys = np.append(batch_ys, batch_ys[0].reshape((1, batch_ys.shape[1])), axis=0)
+        while len(im_paths) < self.batch_size:
+            im_paths.append(im_paths[0])
         batch_xs = np.array(batch_xs)
         batch_ys = np.array(batch_ys)
 
