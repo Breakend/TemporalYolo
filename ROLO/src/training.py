@@ -15,7 +15,7 @@ from shared_utils.data import *
 class ROLO_TF:
     # Buttons
     validate = True
-    validate_step = 2#500
+    validate_step = 1000
     display_validate = True
     save_step = 50
     bidirectional = False
@@ -25,7 +25,7 @@ class ROLO_TF:
     iou_with_ground_truth = True
     display_object_loss = True
     display_regu = False
-
+    confidence_detection_threshold = .5
     # Magic numbers
     learning_rate = 0.0001
     lamda = 1.0
@@ -51,7 +51,7 @@ class ROLO_TF:
     # Data
     x = tf.placeholder("float32", [None, nsteps, len_vec])
     y = tf.placeholder("float32", [None, len_coord])
-    # istate = tf.placeholder("float32", [None, 2*len_vec])
+
     list_batch_pairs = []
 
     # Initializing
@@ -85,7 +85,12 @@ class ROLO_TF:
 
         state = lstm_cell.zero_state(self.batchsize, tf.float32)
 
-        pred, output_state = tf.contrib.rnn.static_rnn(lstm_cell, _X, state, dtype=tf.float32)
+        if self.bidirectional:
+            back_cell = tf.contrib.rnn.MultiRNNCell([cell] * self.number_of_layers, state_is_tuple=False)
+            pred, output_state, back_state = tf.contrib.rnn.static_bidirectional_rnn(lstm_cell, back_cell, _X, state, dtype=tf.float32)
+
+        else:
+            pred, output_state = tf.contrib.rnn.static_rnn(lstm_cell, _X, state, dtype=tf.float32)
 
         batch_pred_feats = pred[0][:, 0:self.len_feat]
         batch_pred_coords = pred[0][:, self.len_feat:self.len_feat+self.len_coord]
@@ -131,7 +136,7 @@ class ROLO_TF:
         square1 = tf.multiply((boxes1[2] - boxes1[0]) ,(boxes1[3] - boxes1[1]))
         square2 = tf.multiply((boxes2[2] - boxes2[0]),(boxes2[3] - boxes2[1]))
 
-        return inter_square/(square1 + square2 - inter_square + 1e-6)
+        return inter_square/(square1 + square2 - inter_square + 1e-6), intersection
 
     # Routines: Train & Test
     def train(self):
@@ -141,7 +146,7 @@ class ROLO_TF:
         ''' Loss: L2 '''
         loss = tf.reduce_mean(tf.square(self.y - batch_pred_coords)) * 100
 
-        iou_predict_truth = self.iou(batch_pred_coords, self.y[:,0:4])
+        iou_predict_truth, intersection = self.iou(batch_pred_coords, self.y[:,0:4])
 
         ''' confidence loss'''
 
@@ -268,10 +273,15 @@ class ROLO_TF:
         #TODO: put outputs somewhere
         # batch_pred_feats, batch_pred_coords, batch_pred_confs, self.final_state = self.LSTM('lstm', self.x, self.istate)
         batch_states = np.zeros((self.batchsize, 2*self.len_vec))
-        iou_predict_truth = tf.reduce_mean(self.iou(batch_pred_coords, self.y[:,0:4]))
+        iou_predict_truth, intersection = self.iou(batch_pred_coords, self.y[:,0:4])
+        false_positives = 0
+        true_positives = 0
+        false_negatives = 0
+        true_negatives = 0
 
         output_path = os.path.join('rolo_loc_test/')
         iou_averages = []
+        intersection_averages =[]
         for batch_id in range(len(batch_loader.batches)):
             print("Validation batch %d" % batch_id)
             xs, ys, im_paths = batch_loader.load_batch(batch_id)
@@ -280,7 +290,14 @@ class ROLO_TF:
             init_state_zeros = np.zeros((len(xs), 2*xs[0].shape[-1]))
 
             pred_location, pred_confs = sess.run([batch_pred_coords, batch_pred_confs],feed_dict={self.x: xs, self.y: ys})
-            # for i in range(len(pred_confs)):
+            iou_ground_truth, intersection_predicted = sess.run([iou_predict_truth, intersection],
+                                  feed_dict={self.x: xs,
+                                             self.y: ys})
+
+            ious = []
+            intersections = []
+            # TODO: clean this up, remove logging
+            # import pdb; pdb.set_trace()
             for i, loc in enumerate(pred_location):
                 img = cv2.imread(im_paths[i])
                 width, height = img.shape[1::-1]
@@ -290,43 +307,61 @@ class ROLO_TF:
                 img_result = debug_3_locations(img, locations_normal(width, height, ys[i]), locations_normal(width, height, xs[i][2][self.len_feat+1:-1]), locations_normal(width, height, pred_location[i]))
                 cv2.imwrite('./results/%d_%d.jpg' %(batch_id, i), img_result)
 
-                # print("predicted")
-                # print(pred_location[i])
-                # print("gold")
-                # print(ys[i])
-                # print("confidence")
-                # print(pred_confs[i])
-                # print("numpy iou")
-                # print(iou(pred_location[i], ys[i]))
+                print("predicted")
+                print(pred_location[i])
+                print("gold")
+                print(ys[i])
+                print("confidence")
+                print(pred_confs[i])
+                print("numpy iou")
+                print(iou(pred_location[i], ys[i]))
+                print("tf iou")
+                print(iou_ground_truth[i])
+                if pred_confs[i] > self.confidence_detection_threshold:
+                    # we have a poisitive detection
+                    if np.count_nonzero(ys[i]) == 0:
+                        # We have no bounding box in the gold
+                        false_positives += 1
+                    else:
+                        ious.append(iou_ground_truth[i])
+                        intersections.append(intersection_predicted[i])
+                        true_positives += 1
+                else:
+                    # No detection
+                    if np.count_nonzero(ys[i]) == 0:
+                        true_negatives += 1
+                    else:
+                        false_negatives += 1
 
-            # TODO: confidence interval to predict whether we have a box or not
 
-            # TODO: output image with bounding box, see:
 
-            # https://github.com/Guanghan/ROLO/blob/6612007e35edb73dac734e7a4dac2cd4c1dca6c1/update/utils/utils_draw_coord.py
+            # TODO: true positives, true negatives, false positives, false negatives, intersection, number of frames?
 
             init_state = init_state_zeros
 
             batch_loss = sess.run(loss,
                                   feed_dict={self.x: xs,
                                              self.y: ys})
-            iou_ground_truth = sess.run(iou_predict_truth,
-                                  feed_dict={self.x: xs,
-                                             self.y: ys})
+
+
+
             loss_seq_total += batch_loss
 
-            # TODO: only do this if we have a prediction
-            # iou_ground_truth_total += iou_ground_truth
-
             loss_seq_avg = loss_seq_total / xs.shape[0]
-            iou_seq_avg = iou_ground_truth
+            iou_seq_avg = np.mean(ious)
 
             # print "Avg loss for " + sequence_name + ": " + str(loss_seq_avg)
             loss_dataset_total += loss_seq_avg
             iou_averages.append(iou_seq_avg)
+            intersection_averages.append(np.mean(intersections))
 
         print('Total loss of Dataset: %f \n', loss_dataset_total)
         print('Average iou with ground truth: %f \n', np.mean(iou_averages))
+        print('Average intersection with ground truth: %f \n', np.mean(intersection_averages))
+        print('False Positives %d', false_positives)
+        print('True Positives %d', true_positives)
+        print('True Negatives %d', true_negatives)
+        print('False Negatives %d', false_negatives)
         return loss_dataset_total
 
     def ROLO(self):
@@ -339,7 +374,7 @@ def main(argvs):
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", type=int, default=1, help="number of layers of LSTM to use, defaults to 1")
-    parser.add_argument("-b", type=bool, default=False, help="Whether to use a bidirectional LSTM")
+    parser.add_argument("-b", action='store_true', default=False, help="Whether to use a bidirectional LSTM")
     args = parser.parse_args()
 
     ROLO_TF({'num_layers' : args.n, "bidirectional" : args.b})
