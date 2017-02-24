@@ -15,7 +15,7 @@ from shared_utils.data import *
 class ROLO_TF:
     # Buttons
     validate = True
-    validate_step = 500
+    validate_step = 2#500
     display_validate = True
     save_step = 50
     bidirectional = False
@@ -193,7 +193,7 @@ class ROLO_TF:
                 ''' Load training data & ground truth '''
                 batch_id = self.iter_id - self.batch_offset
 
-                batch_xs, batch_ys = batch_loader.load_batch(batch_id)
+                batch_xs, batch_ys, _ = batch_loader.load_batch(batch_id)
 
                 # ''' Reshape data '''
                 # batch_xs = np.reshape(batch_xs, [self.batchsize, self.nsteps, self.len_vec])
@@ -274,27 +274,35 @@ class ROLO_TF:
         iou_averages = []
         for batch_id in range(len(batch_loader.batches)):
             print("Validation batch %d" % batch_id)
-            xs, ys = batch_loader.load_batch(batch_id)
+            xs, ys, im_paths = batch_loader.load_batch(batch_id)
             loss_seq_total = 0
 
             init_state_zeros = np.zeros((len(xs), 2*xs[0].shape[-1]))
 
             pred_location, pred_confs = sess.run([batch_pred_coords, batch_pred_confs],feed_dict={self.x: xs, self.y: ys})
-
             # for i in range(len(pred_confs)):
             for i, loc in enumerate(pred_location):
-                print("predicted")
-                print(pred_location[i])
-                print("gold")
-                print(ys[i])
-                print("confidence")
-                print(pred_confs[i])
-                print("numpy iou")
-                print(iou(pred_location[i], ys[i]))
+                img = cv2.imread(im_paths[i])
+                width, height = img.shape[1::-1]
+                # print pred_location[i]
+                # print ys[i]
+                # print xs[i][2][self.len_feat+1:-1]
+                img_result = debug_3_locations(img, locations_normal(width, height, ys[i]), locations_normal(width, height, xs[i][2][self.len_feat+1:-1]), locations_normal(width, height, pred_location[i]))
+                cv2.imwrite('./results/%d_%d.jpg' %(batch_id, i), img_result)
+
+                # print("predicted")
+                # print(pred_location[i])
+                # print("gold")
+                # print(ys[i])
+                # print("confidence")
+                # print(pred_confs[i])
+                # print("numpy iou")
+                # print(iou(pred_location[i], ys[i]))
 
             # TODO: confidence interval to predict whether we have a box or not
 
             # TODO: output image with bounding box, see:
+
             # https://github.com/Guanghan/ROLO/blob/6612007e35edb73dac734e7a4dac2cd4c1dca6c1/update/utils/utils_draw_coord.py
 
             init_state = init_state_zeros

@@ -12,18 +12,30 @@ def debug_3_locations( img, gt_location, yolo_location, rolo_location):
     img_cp = img.copy()
     for i in range(3):  # b-g-r channels
         if i== 0: location= gt_location; color= (0, 0, 255)       # red for gt
-        elif i ==1: location= yolo_location; color= (255, 0, 0)   # blur for yolo
+        elif i ==1: location= yolo_location; color= (255, 0, 0)   # blue for yolo
         elif i ==2: location= rolo_location; color= (0, 255, 0)   # green for rolo
-        x = int(location[0])
-        y = int(location[1])
-        w = int(location[2])
-        h = int(location[3])
-        if i == 1 or i== 2: cv2.rectangle(img_cp,(x-w//2, y-h//2),(x+w//2,y+h//2), color, 2)
-        elif i== 0: cv2.rectangle(img_cp,(x,y),(x+w,y+h), color, 2)
-    cv2.imshow('3 locations',img_cp)
-    cv2.waitKey(100)
+        x = max(int(location[0]), 0)
+        y = max(int(location[1]), 0)
+        w = max(int(location[2]), 0)
+        h = max(int(location[3]), 0)
+        # if i== 2: cv2.rectangle(img_cp,(x-w//2, y-h//2),(x+w//2,y+h//2), color, 2)
+        # elif i== 0 or i == 1: cv2.rectangle(img_cp,(x,y),(x+w,y+h), color, 2)
+        cv2.rectangle(img_cp,(x,y),(x+w,y+h), color, 2)
+    # cv2.imshow('3 locations',img_cp)
+    # cv2.waitKey(100)
     return img_cp
 
+def locations_normal(width, height, locations):
+    """
+    Note this is borrowed from original rolo code
+    """
+    width *= 1.0
+    height *= 1.0
+    locations[0] = width*abs(locations[0])
+    locations[1] = height*abs(locations[1])
+    locations[2] = width*abs(locations[2])
+    locations[3] = height*abs(locations[3])
+    return locations
 
 def load_regular_coord_by_line(line):
     """
@@ -81,6 +93,7 @@ class BatchLoader:
         batch = self.batches[batch_id % len(self.batches)] # allow indexing past the amount of batches available
         batch_xs = []
         batch_ys = []
+        im_paths = []
         # vec_len = 4102 # Length for 4096 feature vector
         vec_len = 1086 # Length for 1080 feature vector
         # import pdb; pdb.set_trace()
@@ -96,6 +109,9 @@ class BatchLoader:
                 batch_ys.append(decimal_coords)
 
             for frame in frames:
+                im_path = frame.replace("yolo_out", "img")
+                im_path = im_path.replace(".npy", ".jpg")
+                im_paths.append(im_path)
                 vec_from_file = np.load(frame)
                 vec_from_file = np.ndarray.flatten(vec_from_file)
                 vec_len = vec_from_file.shape[0]
@@ -117,10 +133,12 @@ class BatchLoader:
         batch_xs = np.array(batch_xs)
         batch_ys = np.array(batch_ys)
 
+        im_paths = np.array(im_paths)
+
         assert batch_xs.shape[0] == batch_ys.shape[0]
         assert batch_xs.shape[0] == self.batch_size
         assert batch_ys.shape[0] == self.batch_size
-        return batch_xs, batch_ys
+        return batch_xs, batch_ys, im_paths
 
     def generate_batches(self, data_filepath, seq_len=6, batch_size=1, folders_to_use=None, step_size=1):
         """Expects a folder structure in the format:
