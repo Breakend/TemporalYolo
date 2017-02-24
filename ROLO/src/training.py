@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 # from testing import test
 from shared_utils.data import *
-
+import datetime as dt
 
 
 class ROLO_TF:
@@ -71,7 +71,6 @@ class ROLO_TF:
         _X = tf.transpose(_X, [1, 0, 2])
         ''' shape: (nsteps, batchsize, len_vec) '''
         _X = tf.reshape(_X, [self.nsteps * self.batchsize, self.len_vec])
-        # import pdb; pdb.set_trace()
         ''' shape: n_steps * (batchsize, len_vec) '''
         _X = tf.split(_X, num_or_size_splits=self.nsteps, axis=0)
 
@@ -108,18 +107,14 @@ class ROLO_TF:
         Return:
           iou: 3-D tensor [CELL_SIZE, CELL_SIZE, BOXES_PER_CELL]
         """
-        # import pdb; pdb.set_trace()
         boxes1 = tf.stack([boxes1[:,0] - boxes1[:,2] / 2, boxes1[:,1] - boxes1[:,3] / 2,
                           boxes1[:,0] + boxes1[:,2] / 2, boxes1[:,1] + boxes1[:,3] / 2])
-        # # boxes1 = tf.transpose(boxes1)
+
         boxes2 =  tf.stack([boxes2[:,0] - boxes2[:,2] / 2, boxes2[:,1] - boxes2[:,3] / 2,
                           boxes2[:,0] + boxes2[:,2] / 2, boxes2[:,1] + boxes2[:,3] / 2])
-        # Assumes boxes 1 is the
-        # boxes1[:,0] = boxes1[:,0] - boxes1[:,2]/2
-        # boxes1[:,1] = boxes1[:,1] - boxes1[:,3]/2
 
         #calculate the left up point
-        # import pdb; pdb.set_trace()
+
         lu = tf.maximum(boxes1[0:2], boxes2[0:2])
         rd = tf.minimum(boxes1[2:], boxes2[2:])
 
@@ -205,7 +200,7 @@ class ROLO_TF:
                 # batch_ys = np.reshape(batch_ys, [self.batchsize, 4])
 
                 ''' Update weights by back-propagation '''
-                # import pdb; pdb.set_trace()
+
                 sess.run(optimizer, feed_dict={self.x: batch_xs,
                                                self.y: batch_ys})
 
@@ -278,18 +273,25 @@ class ROLO_TF:
         true_positives = 0
         false_negatives = 0
         true_negatives = 0
-
+        frames = 0
+        total_prediction_time = 0.0
         output_path = os.path.join('rolo_loc_test/')
         iou_averages = []
         intersection_averages =[]
         for batch_id in range(len(batch_loader.batches)):
             print("Validation batch %d" % batch_id)
             xs, ys, im_paths = batch_loader.load_batch(batch_id)
+            frames += len(xs)
             loss_seq_total = 0
 
             init_state_zeros = np.zeros((len(xs), 2*xs[0].shape[-1]))
+            start=dt.datetime.now()
 
             pred_location, pred_confs = sess.run([batch_pred_coords, batch_pred_confs],feed_dict={self.x: xs, self.y: ys})
+
+            end=dt.datetime.now()
+            total_prediction_time += (end-start).microseconds / 1e6
+
             iou_ground_truth, intersection_predicted = sess.run([iou_predict_truth, intersection],
                                   feed_dict={self.x: xs,
                                              self.y: ys})
@@ -297,13 +299,9 @@ class ROLO_TF:
             ious = []
             intersections = []
             # TODO: clean this up, remove logging
-            # import pdb; pdb.set_trace()
             for i, loc in enumerate(pred_location):
                 img = cv2.imread(im_paths[i])
                 width, height = img.shape[1::-1]
-                # print pred_location[i]
-                # print ys[i]
-                # print xs[i][2][self.len_feat+1:-1]
                 img_result = debug_3_locations(img, locations_normal(width, height, ys[i]), locations_normal(width, height, xs[i][2][self.len_feat+1:-1]), locations_normal(width, height, pred_location[i]))
                 cv2.imwrite('./results/%d_%d.jpg' %(batch_id, i), img_result)
 
@@ -333,10 +331,6 @@ class ROLO_TF:
                     else:
                         false_negatives += 1
 
-
-
-            # TODO: true positives, true negatives, false positives, false negatives, intersection, number of frames?
-
             init_state = init_state_zeros
 
             batch_loss = sess.run(loss,
@@ -344,13 +338,11 @@ class ROLO_TF:
                                              self.y: ys})
 
 
-
             loss_seq_total += batch_loss
 
             loss_seq_avg = loss_seq_total / xs.shape[0]
             iou_seq_avg = np.mean(ious)
 
-            # print "Avg loss for " + sequence_name + ": " + str(loss_seq_avg)
             loss_dataset_total += loss_seq_avg
             iou_averages.append(iou_seq_avg)
             intersection_averages.append(np.mean(intersections))
@@ -362,6 +354,8 @@ class ROLO_TF:
         print('True Positives %d', true_positives)
         print('True Negatives %d', true_negatives)
         print('False Negatives %d', false_negatives)
+        print('Total Number of Frames %d', frames)
+        print('Total Prediction Computation Time %f seconds', total_prediction_time)
         return loss_dataset_total
 
     def ROLO(self):
