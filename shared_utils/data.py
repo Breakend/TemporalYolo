@@ -25,10 +25,11 @@ def debug_3_locations( img, gt_location, yolo_location, rolo_location):
     # cv2.waitKey(100)
     return img_cp
 
-def locations_normal(width, height, locations):
+def locations_normal(width, height, location):
     """
     Note this is borrowed from original rolo code
     """
+    locations = location.copy()
     width *= 1.0
     height *= 1.0
     locations[0] = width*abs(locations[0])
