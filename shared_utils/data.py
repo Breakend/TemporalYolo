@@ -125,7 +125,6 @@ class BatchLoader:
         while len(batch_xs) < self.batch_size:
             batch_xs = np.append(batch_xs, batch_xs[0].reshape((1, batch_xs.shape[1], batch_xs.shape[2])), axis=0)
         while len(batch_ys) < self.batch_size:
-            # import pdb; pdb.set_trace()
             batch_ys = np.append(batch_ys, batch_ys[0].reshape((1, batch_ys.shape[1])), axis=0)
         while len(im_paths) < self.batch_size:
             im_paths.append(im_paths[0])

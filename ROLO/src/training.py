@@ -17,11 +17,12 @@ class ROLO_TF:
     validate = True
     validate_step = 1000
     display_validate = True
-    save_step = 50
+    save_step = 250
     bidirectional = False
-    display_step = 1
+    display_step = 250
     restore_weights = True
     display_coords = False
+
     iou_with_ground_truth = True
     display_object_loss = True
     display_regu = False
@@ -131,7 +132,7 @@ class ROLO_TF:
         square1 = tf.multiply((boxes1[2] - boxes1[0]) ,(boxes1[3] - boxes1[1]))
         square2 = tf.multiply((boxes2[2] - boxes2[0]),(boxes2[3] - boxes2[1]))
 
-        return inter_square/(square1 + square2 - inter_square + 1e-6), intersection
+        return inter_square/(square1 + square2 - inter_square + 1e-6), inter_square
 
     # Routines: Train & Test
     def train(self):
@@ -195,6 +196,13 @@ class ROLO_TF:
 
                 batch_xs, batch_ys, _ = batch_loader.load_batch(batch_id)
 
+                # # TODO: this is a hack to get around the fact that our dataset has yolo coords as x_min, y_min, we need to convert to center for the dataset
+                # # import pdb; pdb.set_trace()
+                # if self.convert_yolo_coords:
+                #     batch_xs[:,:, self.len_feat] += batch_xs[:,:, self.len_feat+2]/2
+                #     batch_xs[:,:, self.len_feat+1] += batch_xs[:,:, self.len_feat+3]/2
+
+
                 # ''' Reshape data '''
                 # batch_xs = np.reshape(batch_xs, [self.batchsize, self.nsteps, self.len_vec])
                 # batch_ys = np.reshape(batch_ys, [self.batchsize, 4])
@@ -210,28 +218,28 @@ class ROLO_TF:
                                           feed_dict={self.x: batch_xs,
                                                      self.y: batch_ys})
                     print("Batch loss for iteration %d: %.3f" % (self.iter_id, batch_loss))
-                if self.display_object_loss:
+                if self.display_object_loss and self.iter_id % self.display_step == 0:
                     ''' Calculate batch object loss '''
                     batch_o_loss = sess.run(object_loss,
                                           feed_dict={self.x: batch_xs,
                                                      self.y: batch_ys})
                     print("Object loss for iteration %d: %.3f" % (self.iter_id, batch_o_loss))
 
-                if self.iou_with_ground_truth:
+                if self.iou_with_ground_truth and self.iter_id % self.display_step == 0:
                     ''' Calculate batch object loss '''
                     batch_o_loss = sess.run(tf.reduce_mean(iou_predict_truth),
                                           feed_dict={self.x: batch_xs,
                                                      self.y: batch_ys})
                     print("Average with ground for iteration %d: %.3f" % (self.iter_id, batch_o_loss))
 
-                if self.display_regu is True:
+                if self.display_regu is True and self.iter_id % self.display_step == 0:
                     ''' Caculate regularization term'''
                     batch_regularization = sess.run(regularization_term,
                                                     feed_dict={self.x: batch_xs,
                                                                self.y: batch_ys})
                     print("Batch regu for iteration %d: %.3f" % (self.iter_id, batch_regularization))
 
-                if self.display_coords is True:
+                if self.display_coords is True and self.iter_id % self.display_step == 0:
                     ''' Caculate predicted coordinates '''
                     coords_predict = sess.run(batch_pred_coords,
                                               feed_dict={self.x: batch_xs,
@@ -285,9 +293,16 @@ class ROLO_TF:
 
         iou_averages = []
         intersection_averages =[]
+        print("Starting test batches")
         for batch_id in range(len(batch_loader.batches)):
-            print("Validation batch %d" % batch_id)
             xs, ys, im_paths = batch_loader.load_batch(batch_id)
+
+            # TODO: this is a hack to get around the fact that our dataset has yolo coords as x_min, y_min, we need to convert to center for the dataset
+            # if self.convert_yolo_coords:
+            #     xs[:,:, self.len_feat] += xs[:,:, self.len_feat+2]/2
+            #     xs[:,:, self.len_feat+1] += xs[:,:, self.len_feat+3]/2
+            #     # temp =
+
             frames += len(xs)
             loss_seq_total = 0
 
@@ -309,11 +324,11 @@ class ROLO_TF:
             for i, loc in enumerate(pred_location):
                 img = cv2.imread(im_paths[i])
                 # TODO: this is a hack to get the video basename :(
-                base_name = im_paths[i].split("/")[2]
+                base_name = im_paths[i].split("/")[-3]
                 width, height = img.shape[1::-1]
-                img_result = debug_3_locations(img, locations_normal(width, height, ys[i]), locations_normal(width, height, xs[i][2][self.len_feat+1:-1]), locations_normal(width, height, pred_location[i]))
+                img_result = debug_3_locations(img, locations_normal(width, height, ys[i]), locations_normal(width, height, xs[i][-1][self.len_feat+1:-1]), locations_normal(width, height, pred_location[i]))
                 cv2.imwrite('./results/%s_%d_%d.jpg' %(base_name, batch_id, i), img_result)
-
+                """
                 print("predicted")
                 print(pred_location[i])
                 print("gold")
@@ -324,6 +339,7 @@ class ROLO_TF:
                 print(iou(pred_location[i], ys[i]))
                 print("tf iou")
                 print(iou_ground_truth[i])
+                """
                 if pred_confs[i] > self.confidence_detection_threshold:
                     # we have a poisitive detection
                     if np.count_nonzero(ys[i]) == 0:
@@ -350,11 +366,13 @@ class ROLO_TF:
             loss_seq_total += batch_loss
 
             loss_seq_avg = loss_seq_total / xs.shape[0]
-            iou_seq_avg = np.mean(ious)
+            if ious:
+                iou_seq_avg = np.mean(ious)
+                iou_averages.append(iou_seq_avg)
 
             loss_dataset_total += loss_seq_avg
-            iou_averages.append(iou_seq_avg)
-            intersection_averages.append(np.mean(intersections))
+            if intersections:
+                intersection_averages.append(np.mean(intersections))
 
         print('Total loss of Dataset: %f \n', loss_dataset_total)
         print('Average iou with ground truth: %f \n', np.mean(iou_averages))
