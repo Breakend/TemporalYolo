@@ -221,9 +221,12 @@ class ROLO_TF:
         # validation_set_loader = BatchLoader("./VALID/", seq_len=self.nsteps, batch_size=self.batchsize, step_size=1, folders_to_use=["Human6" ,"Human7"])
         validation_set_loader = BatchLoader("./DATA/VALID/", seq_len=self.nsteps, batch_size=self.batchsize, step_size=1, folders_to_use=["bbd_2017__2017-01-09-21-40-02_cam_flimage_raw","bbd_2017__2017-01-09-21-44-31_cam_flimage_raw","bbd_2017__2017-01-09-21-48-46_cam_flimage_raw","bbd_2017__2017-01-10-16-07-49_cam_flimage_raw","bbd_2017__2017-01-10-16-21-01_cam_flimage_raw","bbd_2017__2017-01-10-16-31-57_cam_flimage_raw","bbd_2017__2017-01-10-21-43-03_cam_flimage_raw","bbd_2017__2017-01-11-20-21-32_cam_flimage_raw","bbd_2017__2017-01-11-21-02-37_cam_flimage_raw"])
 
+        print("%d available training batches" % len(batch_loader.batches))
+        print("%d available validation batches" % len(validation_set_loader.batches))
+
         ''' Launch the graph '''
         with tf.Session() as sess:
-            if self.restore_weights == True and os.path.isfile(self.rolo_current_save):
+            if self.restore_weights == True and os.path.isfile(self.rolo_current_save + ".index"):
                 sess.run(init)
                 self.saver.restore(sess, self.rolo_current_save)
                 print("Weight loaded, finetuning")
@@ -348,7 +351,7 @@ class ROLO_TF:
                     summary = sess.run(summary_op, feed_dict={self.x: batch_xs,
                                                               self.y: batch_ys})
                     test_writer.add_summary(summary, self.iter_id)
-            print("Average epoch loss %f" % np.mean(epoch_loss))
+            print("Average total loss %f" % np.mean(epoch_loss))
         return
 
 
