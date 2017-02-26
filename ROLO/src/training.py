@@ -22,14 +22,15 @@ class ROLO_TF:
     display_step = 250
     restore_weights = True
     display_coords = False
+    display_iou_penalty = True
 
     iou_with_ground_truth = True
     display_object_loss = True
-    display_regu = False
+    display_regu = True
     confidence_detection_threshold = .3
     # Magic numbers
-    learning_rate = 0.0001
-    lamda = 1.0
+    learning_rate = 0.00005
+    lamda = .3
 
     # Path
     rolo_weights_file = 'weights/rolo_weights.ckpt'
@@ -45,7 +46,7 @@ class ROLO_TF:
 
     # Batch
     nsteps = 3
-    batchsize = 32
+    batchsize = 16
     n_iters = 250000
     batch_offset = 0
 
@@ -140,24 +141,31 @@ class ROLO_TF:
         batch_pred_feats, batch_pred_coords, batch_pred_confs, self.final_state = self.LSTM('lstm', self.x)
 
         ''' Loss: L2 '''
-        loss = tf.reduce_mean(tf.square(self.y - batch_pred_coords)) * 100
+        loss = tf.reduce_mean(tf.square(self.y - batch_pred_coords))
 
-        iou_predict_truth, intersection = self.iou(batch_pred_coords, self.y[:,0:4])
+        iou_predict_truth, intersection = self.iou(batch_pred_coords, self.y[:,0:4]) 
 
         ''' confidence loss'''
 
-        object_loss = tf.reduce_mean(tf.nn.l2_loss((batch_pred_confs - iou_predict_truth))) * 100
+        object_loss = tf.reduce_mean(tf.nn.l2_loss((batch_pred_confs - iou_predict_truth)))
         # ave_iou = tf.reduce_mean(iou_predict_truth)
         # noobject_loss = tf.nn.l2_loss(no_I * (p_C)) * self.noobject_scale
 
 
         ''' regularization term: L2 '''
-        regularization_term = tf.reduce_mean(tf.square(self.x[:, self.nsteps-1, 0:self.len_feat] - batch_pred_feats)) * 100
+        # TODO: this isn't even l2 reg
+        regularization_term = tf.reduce_mean(tf.square(self.x[:, self.nsteps-1, 0:self.len_feat] - batch_pred_feats)) * self.lamda
 
-        minimize_iou = (1.0 - tf.reduce_mean(iou_predict_truth)) * 100
+        #import pdb; pdb.set_trace()
+        should_exist = tf.cast(tf.reduce_sum(self.y[:,0:4], axis=1) > 0., tf.float32)
+        iou_predict_truth_accounting_for_nulls = iou_predict_truth * (should_exist) + (1.0 - should_exist)
+
+        minimize_iou = (1.0 - tf.reduce_mean(iou_predict_truth_accounting_for_nulls))
+
+        total_loss = loss + .7*minimize_iou + object_loss #+ regularization_term
 
         ''' Optimizer '''
-        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(loss + object_loss + minimize_iou + self.lamda * regularization_term) # Adam Optimizer
+        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(total_loss) # Adam Optimizer
 
         ''' Summary for tensorboard analysis '''
         dataset_loss = -1
@@ -214,30 +222,37 @@ class ROLO_TF:
 
                 if self.iter_id % self.display_step == 0:
                     ''' Calculate batch loss '''
-                    batch_loss = sess.run(loss,
+                    batch_loss = sess.run(total_loss,
                                           feed_dict={self.x: batch_xs,
                                                      self.y: batch_ys})
-                    print("Batch loss for iteration %d: %.3f" % (self.iter_id, batch_loss))
+                    print("Batch loss for iteration %d: %.9f" % (self.iter_id, batch_loss))
                 if self.display_object_loss and self.iter_id % self.display_step == 0:
                     ''' Calculate batch object loss '''
                     batch_o_loss = sess.run(object_loss,
                                           feed_dict={self.x: batch_xs,
                                                      self.y: batch_ys})
-                    print("Object loss for iteration %d: %.3f" % (self.iter_id, batch_o_loss))
+                    print("Object loss for iteration %d: %.9f" % (self.iter_id, batch_o_loss))
+
+                if self.display_iou_penalty and self.iter_id % self.display_step == 0:
+                    ''' Calculate batch object loss '''
+                    iou_loss = sess.run(minimize_iou,
+                                          feed_dict={self.x: batch_xs,
+                                                     self.y: batch_ys})
+                    print("IOU penalty for iteration %d: %.9f" % (self.iter_id, iou_loss))
 
                 if self.iou_with_ground_truth and self.iter_id % self.display_step == 0:
                     ''' Calculate batch object loss '''
                     batch_o_loss = sess.run(tf.reduce_mean(iou_predict_truth),
                                           feed_dict={self.x: batch_xs,
                                                      self.y: batch_ys})
-                    print("Average with ground for iteration %d: %.3f" % (self.iter_id, batch_o_loss))
+                    print("Average with ground for iteration %d: %.9f" % (self.iter_id, batch_o_loss))
 
                 if self.display_regu is True and self.iter_id % self.display_step == 0:
                     ''' Caculate regularization term'''
                     batch_regularization = sess.run(regularization_term,
                                                     feed_dict={self.x: batch_xs,
                                                                self.y: batch_ys})
-                    print("Batch regu for iteration %d: %.3f" % (self.iter_id, batch_regularization))
+                    print("Batch regu for iteration %d: %.9f" % (self.iter_id, batch_regularization))
 
                 if self.display_coords is True and self.iter_id % self.display_step == 0:
                     ''' Caculate predicted coordinates '''
@@ -256,7 +271,7 @@ class ROLO_TF:
                 if self.validate == True and self.iter_id % self.validate_step == 0 and self.iter_id > 0:
                     # Run validation set
 
-                    dataset_loss = self.test(sess, loss, validation_set_loader, batch_pred_feats, batch_pred_coords, batch_pred_confs, self.final_state)
+                    dataset_loss = self.test(sess, total_loss, validation_set_loader, batch_pred_feats, batch_pred_coords, batch_pred_confs, self.final_state)
 
                     ''' Early-stop regularization '''
                     if dataset_loss <= dataset_loss_best:
