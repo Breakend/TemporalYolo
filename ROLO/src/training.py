@@ -6,6 +6,7 @@ import time, random
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
+from tensorflow.contrib import layers as tflayers
 
 # from testing import test
 from shared_utils.data import *
@@ -15,21 +16,26 @@ import datetime as dt
 class ROLO_TF:
     # Buttons
     validate = True
-    validate_step = 1000
+    validate_step = 2000
     display_validate = True
-    save_step = 250
+    save_step = 1000
     bidirectional = False
     display_step = 250
     restore_weights = True
     display_coords = False
     display_iou_penalty = True
+    coord_scale = 5.0
+    object_scale = 1.0
+    noobject_scale = .5
+
+    output_validation_images = False
 
     iou_with_ground_truth = True
     display_object_loss = True
-    display_regu = True
+    display_regu = False
     confidence_detection_threshold = .3
     # Magic numbers
-    learning_rate = 0.00005
+    learning_rate = 0.0001
     lamda = .3
 
     # Path
@@ -47,7 +53,7 @@ class ROLO_TF:
     # Batch
     nsteps = 3
     batchsize = 16
-    n_iters = 250000
+    n_iters = 80000
     batch_offset = 0
 
     # Data
@@ -67,8 +73,14 @@ class ROLO_TF:
 
         self.ROLO()
 
+
+    def dnn_layers(self, input_layers, layers, activation=tf.sigmoid):
+        # layers = dimension of layers
+        return tflayers.stack(input_layers, tflayers.fully_connected, layers, activation_fn=activation)
+
     # Routines: Network
     def LSTM(self, name,  _X):
+        # import pdb; pdb.set_trace()
         ''' shape: (batchsize, nsteps, len_vec) '''
         _X = tf.transpose(_X, [1, 0, 2])
         ''' shape: (nsteps, batchsize, len_vec) '''
@@ -77,7 +89,8 @@ class ROLO_TF:
         _X = tf.split(_X, num_or_size_splits=self.nsteps, axis=0)
 
 
-        cell = tf.contrib.rnn.LSTMCell(self.len_vec, self.len_vec, state_is_tuple = False)
+        initializer = tf.random_uniform_initializer(-1, 1)
+        cell = tf.contrib.rnn.LSTMCell(self.len_vec, self.len_vec, state_is_tuple = False, initializer=initializer, use_peepholes=True)
 
         # TODO: use dropout???
         # cell = DropoutWrapper(cell, output_keep_prob=dropout)
@@ -93,9 +106,12 @@ class ROLO_TF:
         else:
             pred, output_state = tf.contrib.rnn.static_rnn(lstm_cell, _X, state, dtype=tf.float32)
 
+        # import pdb; pdb.set_trace()
+        dense_coords_conf = self.dnn_layers(pred[-1], (self.len_vec, 256, 32, self.len_coord+1), activation=tf.sigmoid)
+
         batch_pred_feats = pred[0][:, 0:self.len_feat]
-        batch_pred_coords = pred[0][:, self.len_feat:self.len_feat+self.len_coord]
-        batch_pred_confs = pred[0][:, self.len_feat+self.len_coord]
+        batch_pred_coords = dense_coords_conf[:, 0:4]
+        batch_pred_confs = dense_coords_conf[:,4]
         return batch_pred_feats, batch_pred_coords, batch_pred_confs, output_state
 
 
@@ -135,34 +151,52 @@ class ROLO_TF:
 
         return inter_square/(square1 + square2 - inter_square + 1e-6), inter_square
 
+
+
     # Routines: Train & Test
     def train(self):
         ''' Network '''
         batch_pred_feats, batch_pred_coords, batch_pred_confs, self.final_state = self.LSTM('lstm', self.x)
 
         ''' Loss: L2 '''
-        loss = tf.reduce_mean(tf.square(self.y - batch_pred_coords))
+        # loss = tf.reduce_mean(tf.square(self.y - batch_pred_coords))
 
-        iou_predict_truth, intersection = self.iou(batch_pred_coords, self.y[:,0:4]) 
+        iou_predict_truth, intersection = self.iou(batch_pred_coords, self.y[:,0:4])
 
         ''' confidence loss'''
-
-        object_loss = tf.reduce_mean(tf.nn.l2_loss((batch_pred_confs - iou_predict_truth)))
-        # ave_iou = tf.reduce_mean(iou_predict_truth)
         # noobject_loss = tf.nn.l2_loss(no_I * (p_C)) * self.noobject_scale
 
 
         ''' regularization term: L2 '''
         # TODO: this isn't even l2 reg
-        regularization_term = tf.reduce_mean(tf.square(self.x[:, self.nsteps-1, 0:self.len_feat] - batch_pred_feats)) * self.lamda
+        # regularization_term = tf.reduce_mean(tf.square(self.x[:, self.nsteps-1, 0:self.len_feat] - batch_pred_feats)) * self.lamda
 
         #import pdb; pdb.set_trace()
-        should_exist = tf.cast(tf.reduce_sum(self.y[:,0:4], axis=1) > 0., tf.float32)
-        iou_predict_truth_accounting_for_nulls = iou_predict_truth * (should_exist) + (1.0 - should_exist)
+        should_exist = I = tf.cast(tf.reduce_sum(self.y[:,0:4], axis=1) > 0., tf.float32)
+        no_I = tf.ones_like(I, dtype=tf.float32) - I
 
-        minimize_iou = (1.0 - tf.reduce_mean(iou_predict_truth_accounting_for_nulls))
+        object_loss = tf.nn.l2_loss(I * (batch_pred_confs - iou_predict_truth)) * self.object_scale
+        noobject_loss = tf.nn.l2_loss(no_I * batch_pred_confs) * self.noobject_scale
 
-        total_loss = loss + .7*minimize_iou + object_loss #+ regularization_term
+        p_sqrt_w = tf.sqrt(tf.minimum(1.0, tf.maximum(0.0, batch_pred_coords[:, 2])))
+        p_sqrt_h = tf.sqrt(tf.minimum(1.0, tf.maximum(0.0, batch_pred_coords[:, 3])))
+        sqrt_w = tf.sqrt(tf.abs(self.y[:,2]))
+        sqrt_h = tf.sqrt(tf.abs(self.y[:,3]))
+        loss = (tf.nn.l2_loss((batch_pred_coords[:,0] - self.y[:,0])) +
+                 tf.nn.l2_loss((batch_pred_coords[:,1] - self.y[:,1])) +
+                 tf.nn.l2_loss((p_sqrt_w - sqrt_w)) +
+                 tf.nn.l2_loss((p_sqrt_h - sqrt_h))) * self.coord_scale
+
+
+        # penalize false positives
+        # false_positive_penalty = tf.reduce_mean((1.0-should_exist) * tf.cast(batch_pred_confs > self.confidence_detection_threshold, tf.float32))
+
+        # penalize false negatives
+        # false_negative_penalty = tf.reduce_mean((should_exist) * tf.cast(batch_pred_confs <= self.confidence_detection_threshold, tf.float32))
+
+        # minimize_iou = (1.0 - tf.reduce_mean(iou_predict_truth_accounting_for_nulls)) * .5
+
+        total_loss = loss + object_loss + noobject_loss
 
         ''' Optimizer '''
         optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(total_loss) # Adam Optimizer
@@ -197,7 +231,7 @@ class ROLO_TF:
                 sess.run(init)
                 print("Training from scratch")
 
-
+            epoch_loss = []
             for self.iter_id in range(self.n_iters):
                 ''' Load training data & ground truth '''
                 batch_id = self.iter_id - self.batch_offset
@@ -225,7 +259,30 @@ class ROLO_TF:
                     batch_loss = sess.run(total_loss,
                                           feed_dict={self.x: batch_xs,
                                                      self.y: batch_ys})
-                    print("Batch loss for iteration %d: %.9f" % (self.iter_id, batch_loss))
+                    epoch_loss.append(batch_loss)
+                    print("Total Batch loss for iteration %d: %.9f" % (self.iter_id, batch_loss))
+
+                if self.iter_id % self.display_step == 0:
+                    ''' Calculate batch loss '''
+                    batch_loss = sess.run(loss,
+                                          feed_dict={self.x: batch_xs,
+                                                     self.y: batch_ys})
+                    print("Bounding box coord error loss for iteration %d: %.9f" % (self.iter_id, batch_loss))
+
+                # if self.iter_id % self.display_step == 0:
+                #     ''' Calculate batch loss '''
+                #     batch_loss = sess.run(false_positive_penalty,
+                #                           feed_dict={self.x: batch_xs,
+                #                                      self.y: batch_ys})
+                #     print("False positive loss for iteration %d: %.9f" % (self.iter_id, batch_loss))
+
+                # if self.iter_id % self.display_step == 0:
+                #     ''' Calculate batch loss '''
+                #     batch_loss = sess.run(false_negative_penalty,
+                #                           feed_dict={self.x: batch_xs,
+                #                                      self.y: batch_ys})
+                #     print("False negative loss for iteration %d: %.9f" % (self.iter_id, batch_loss))
+
                 if self.display_object_loss and self.iter_id % self.display_step == 0:
                     ''' Calculate batch object loss '''
                     batch_o_loss = sess.run(object_loss,
@@ -233,12 +290,20 @@ class ROLO_TF:
                                                      self.y: batch_ys})
                     print("Object loss for iteration %d: %.9f" % (self.iter_id, batch_o_loss))
 
-                if self.display_iou_penalty and self.iter_id % self.display_step == 0:
+                if self.display_object_loss and self.iter_id % self.display_step == 0:
                     ''' Calculate batch object loss '''
-                    iou_loss = sess.run(minimize_iou,
+                    batch_noo_loss = sess.run(noobject_loss,
                                           feed_dict={self.x: batch_xs,
                                                      self.y: batch_ys})
-                    print("IOU penalty for iteration %d: %.9f" % (self.iter_id, iou_loss))
+                    print("No Object loss for iteration %d: %.9f" % (self.iter_id, batch_noo_loss))
+
+
+                # if self.display_iou_penalty and self.iter_id % self.display_step == 0:
+                #     ''' Calculate batch object loss '''
+                #     iou_loss = sess.run(minimize_iou,
+                #                           feed_dict={self.x: batch_xs,
+                #                                      self.y: batch_ys})
+                #     print("IOU penalty for iteration %d: %.9f" % (self.iter_id, iou_loss))
 
                 if self.iou_with_ground_truth and self.iter_id % self.display_step == 0:
                     ''' Calculate batch object loss '''
@@ -247,12 +312,12 @@ class ROLO_TF:
                                                      self.y: batch_ys})
                     print("Average with ground for iteration %d: %.9f" % (self.iter_id, batch_o_loss))
 
-                if self.display_regu is True and self.iter_id % self.display_step == 0:
-                    ''' Caculate regularization term'''
-                    batch_regularization = sess.run(regularization_term,
-                                                    feed_dict={self.x: batch_xs,
-                                                               self.y: batch_ys})
-                    print("Batch regu for iteration %d: %.9f" % (self.iter_id, batch_regularization))
+                # if self.display_regu is True and self.iter_id % self.display_step == 0:
+                #     ''' Caculate regularization term'''
+                #     batch_regularization = sess.run(regularization_term,
+                #                                     feed_dict={self.x: batch_xs,
+                #                                                self.y: batch_ys})
+                #     print("Batch regu for iteration %d: %.9f" % (self.iter_id, batch_regularization))
 
                 if self.display_coords is True and self.iter_id % self.display_step == 0:
                     ''' Caculate predicted coordinates '''
@@ -283,6 +348,7 @@ class ROLO_TF:
                     summary = sess.run(summary_op, feed_dict={self.x: batch_xs,
                                                               self.y: batch_ys})
                     test_writer.add_summary(summary, self.iter_id)
+            print("Average epoch loss %f" % np.mean(epoch_loss))
         return
 
 
@@ -342,10 +408,11 @@ class ROLO_TF:
                 base_name = im_paths[i].split("/")[-3]
                 width, height = img.shape[1::-1]
                 # import pdb; pdb.set_trace()
-                yolo_box = locations_normal(width, height, xs[i][-1][self.len_feat+1:-1]*int(xs[i][-1][-1] > self.confidence_detection_threshold)) #times the confidence to zero out a non-confident bounding box
-                rolo_box = locations_normal(width, height, pred_location[i] * int(pred_confs[i] > self.confidence_detection_threshold))
-                img_result = debug_3_locations(img, locations_normal(width, height, ys[i]), yolo_box, rolo_box)
-                cv2.imwrite('./results/%s_%d_%d.jpg' %(base_name, batch_id, i), img_result)
+                if self.output_validation_images:
+                    yolo_box = locations_normal(width, height, xs[i][-1][self.len_feat+1:-1]*int(xs[i][-1][-1] > self.confidence_detection_threshold)) #times the confidence to zero out a non-confident bounding box
+                    rolo_box = locations_normal(width, height, pred_location[i] * int(pred_confs[i] > self.confidence_detection_threshold))
+                    img_result = debug_3_locations(img, locations_normal(width, height, ys[i]), yolo_box, rolo_box)
+                    cv2.imwrite('./results/%s_%d_%d.jpg' %(base_name, batch_id, i), img_result)
                 """
                 print("predicted")
                 print(pred_location[i])
