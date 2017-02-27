@@ -28,6 +28,7 @@ class ROLO_TF:
     coord_scale = 5.0
     object_scale = 1.0
     noobject_scale = .5
+    use_dropout=True
 
     output_validation_images = False
 
@@ -94,12 +95,15 @@ class ROLO_TF:
         cell = tf.contrib.rnn.LSTMCell(self.len_vec, self.len_vec, state_is_tuple = False, initializer=initializer, use_peepholes=True)
 
         # TODO: use dropout???
-        cell = tf.contrib.rnn.DropoutWrapper(cell, output_keep_prob=.7)
 
         if self.use_attention:
             cell = tf.contrib.rnn.AttentionCellWrapper(cell, sefl.nsteps)
 
+        print("Using %d lstm layers" % self.number_of_layers)
         lstm_cell = tf.contrib.rnn.MultiRNNCell([cell] * self.number_of_layers, state_is_tuple=False)
+
+        if self.use_dropout:
+            lstm_cell = tf.contrib.rnn.DropoutWrapper(cell, output_keep_prob=.7)
 
         state = lstm_cell.zero_state(self.batchsize, tf.float32)
 
