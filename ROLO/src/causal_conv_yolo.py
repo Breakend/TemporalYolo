@@ -4,7 +4,7 @@ sys.path.append(os.path.abspath("./"))
 
 import time, random
 import numpy as np
-import tensorflow as tf
+import sugartensor as tf
 import matplotlib.pyplot as plt
 from tensorflow.contrib import layers as tflayers
 
@@ -84,39 +84,58 @@ class ROLO_TF:
         # import pdb; pdb.set_trace()
         ''' shape: (batchsize, nsteps, len_vec) '''
         _X = tf.transpose(_X, [1, 0, 2])
-        ''' shape: (nsteps, batchsize, len_vec) '''
-        _X = tf.reshape(_X, [self.nsteps * self.batchsize, self.len_vec])
-        ''' shape: n_steps * (batchsize, len_vec) '''
-        _X = tf.split(_X, num_or_size_splits=self.nsteps, axis=0)
+        # ''' shape: (nsteps, batchsize, len_vec) '''
+        # _X = tf.reshape(_X, [self.nsteps * self.batchsize, self.len_vec])
+        # ''' shape: n_steps * (batchsize, len_vec) '''
+        # _X = tf.split(_X, num_or_size_splits=self.nsteps, axis=0)
+
+        latent_dimensions = self.len_vec
+        num_blocks = 1
 
 
-        initializer = tf.random_uniform_initializer(-1, 1)
-        cell = tf.contrib.rnn.LSTMCell(self.len_vec, self.len_vec, state_is_tuple = False, initializer=initializer, use_peepholes=True)
+        def res_block(tensor, size, rate, dim=latent_dimensions):
 
-        # TODO: use dropout???
-        cell = tf.contrib.rnn.DropoutWrapper(cell, output_keep_prob=.7)
+            # filter convolution
+            conv_filter = tensor.sg_aconv1d(size=size, rate=rate, act='tanh', bn=True)
 
-        if self.use_attention:
-            cell = tf.contrib.rnn.AttentionCellWrapper(cell, sefl.nsteps)
+            # gate convolution
+            conv_gate = tensor.sg_aconv1d(size=size, rate=rate,  act='sigmoid', bn=True)
 
-        lstm_cell = tf.contrib.rnn.MultiRNNCell([cell] * self.number_of_layers, state_is_tuple=False)
+            # output by gate multiplying
+            out = conv_filter * conv_gate
 
-        state = lstm_cell.zero_state(self.batchsize, tf.float32)
+            # final output
+            out = out.sg_conv1d(size=1, dim=dim, act='tanh', bn=True)
 
-        if self.bidirectional:
-            back_cell = tf.contrib.rnn.MultiRNNCell([cell] * self.number_of_layers, state_is_tuple=False)
-            pred, output_state, back_state = tf.contrib.rnn.static_bidirectional_rnn(lstm_cell, back_cell, _X, state, dtype=tf.float32)
+            # residual and skip output
+            return out + tensor, out
 
-        else:
-            pred, output_state = tf.contrib.rnn.static_rnn(lstm_cell, _X, state, dtype=tf.float32)
+        # expand dimension
+        z = _X.sg_conv1d(size=1, dim=latent_dimensions, act='tanh', bn=True)
+
+        # dilated conv block loop
+        skip = 0  # skip connections
+        for i in range(num_blocks):
+            for r in [1, 2, 4, 8]:
+                z, s = res_block(z, size=7, rate=r)
+                skip += s
+
+        # final logit layers
+        logit = (skip
+                 .sg_conv1d(size=1, act='tanh', bn=True)
+                 .sg_conv1d(size=1, dim=5)) #5 => 4 coords + confidence
 
         # import pdb; pdb.set_trace()
-        dense_coords_conf = self.dnn_layers(pred[-1], (self.len_vec, 256, 32, self.len_coord+1), activation=tf.sigmoid)
+        # dense_coords_conf = self.dnn_layers(pred[-1], (self.len_vec, 256, 32, self.len_coord+1), activation=tf.sigmoid)
+        #
+        # batch_pred_feats = pred[0][:, 0:self.len_feat]
+        # batch_pred_coords = dense_coords_conf[:, 0:4]
+        # batch_pred_confs = dense_coords_conf[:,4]
+        # import pdb; pdb.set_trace()
+        batch_pred_coords = logit[-1][:,0:4]
+        batch_pred_coords = logit[-1][:,4]
 
-        batch_pred_feats = pred[0][:, 0:self.len_feat]
-        batch_pred_coords = dense_coords_conf[:, 0:4]
-        batch_pred_confs = dense_coords_conf[:,4]
-        return batch_pred_feats, batch_pred_coords, batch_pred_confs, output_state
+        return None, batch_pred_coords, batch_pred_confs, output_state
 
 
     def iou(self, boxes1, boxes2):
