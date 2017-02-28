@@ -40,8 +40,8 @@ class ROLO_TF:
     lamda = .3
 
     # Path
-    rolo_weights_file = 'weights/rolo_weights.ckpt'
-    rolo_current_save = 'weights/rolo_weights_temp.ckpt'
+    rolo_weights_file = 'weights/causal_yolo_weights.ckpt'
+    rolo_current_save = 'weights/causal_yolo_weights_temp.ckpt'
 
     # Vector for very small model
     len_feat = 1080
@@ -116,13 +116,13 @@ class ROLO_TF:
         # dilated conv block loop
         skip = 0  # skip connections
         for i in range(num_blocks):
-            for r in [1, 2, 4, 8]:
-                z, s = res_block(z, size=7, rate=r)
+            for r in [1, 2, 4]:
+                z, s = res_block(z, size=3, rate=r)
                 skip += s
 
         # final logit layers
         logit = (skip
-                 .sg_conv1d(size=1, act='tanh', bn=True)
+                 .sg_conv1d(size=1, act='sigmoid', bn=True)
                  .sg_conv1d(size=1, dim=5)) #5 => 4 coords + confidence
 
         # import pdb; pdb.set_trace()
@@ -133,9 +133,9 @@ class ROLO_TF:
         # batch_pred_confs = dense_coords_conf[:,4]
         # import pdb; pdb.set_trace()
         batch_pred_coords = logit[-1][:,0:4]
-        batch_pred_coords = logit[-1][:,4]
+        batch_pred_confs = logit[-1][:,4]
 
-        return None, batch_pred_coords, batch_pred_confs, output_state
+        return None, batch_pred_coords, batch_pred_confs, None
 
 
     def iou(self, boxes1, boxes2):
@@ -213,7 +213,6 @@ class ROLO_TF:
         summary_op = tf.summary.merge_all()
 
         ''' Initializing the variables '''
-        init = tf.initialize_all_variables()
         self.saver = tf.train.Saver()
         batch_states = np.zeros((self.batchsize, 2*self.len_vec))
 
@@ -228,11 +227,13 @@ class ROLO_TF:
         ''' Launch the graph '''
         with tf.Session() as sess:
             if self.restore_weights == True and os.path.isfile(self.rolo_current_save + ".index"):
-                sess.run(init)
+                # sess.run(init)
+                tf.sg_init(sess)
                 self.saver.restore(sess, self.rolo_current_save)
                 print("Weight loaded, finetuning")
             else:
-                sess.run(init)
+                # sess.run(init)
+                tf.sg_init(sess)
                 print("Training from scratch")
 
             epoch_loss = []
