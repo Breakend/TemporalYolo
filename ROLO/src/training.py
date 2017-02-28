@@ -53,7 +53,7 @@ class ROLO_TF:
     len_vec = len_feat + len_predict
 
     # Batch
-    nsteps = 3
+    nsteps = 6
     batchsize = 16
     n_iters = 120000
     batch_offset = 0
@@ -110,6 +110,7 @@ class ROLO_TF:
         state = lstm_cell.zero_state(self.batchsize, tf.float32)
 
         if self.bidirectional:
+            print("using bidirectional lstm")
             back_cell = tf.contrib.rnn.MultiRNNCell([cell] * self.number_of_layers, state_is_tuple=False)
             pred, output_state, back_state = tf.contrib.rnn.static_bidirectional_rnn(lstm_cell, back_cell, _X, state, dtype=tf.float32)
 
@@ -356,6 +357,7 @@ class ROLO_TF:
 
             ious = []
             intersections = []
+            failures = 0
             # TODO: clean this up, remove logging
             for i, loc in enumerate(pred_location):
                 img = cv2.imread(im_paths[i])
@@ -389,6 +391,8 @@ class ROLO_TF:
                         ious.append(iou_ground_truth[i])
                         intersections.append(intersection_predicted[i])
                         true_positives += 1
+                        if iou_ground_truth[i] < self.confidence_detection_threshold:
+                            failures += 1
                 else:
                     # No detection
                     if np.count_nonzero(ys[i]) == 0:
@@ -424,6 +428,7 @@ class ROLO_TF:
         print('False Negatives %d', false_negatives)
         print('Total Number of Frames %d', frames)
         print('Total Prediction Computation Time %f seconds', total_prediction_time)
+        print('Failures %d', failures)
         return loss_dataset_total
 
     def ROLO(self):

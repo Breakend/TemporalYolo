@@ -25,7 +25,7 @@ class ROLO_TF:
     display_coords = False
     display_iou_penalty = True
     use_attention = False
-    coord_scale = 2.0
+    coord_scale = 5.0
     object_scale = 1.0
     noobject_scale = .5
 
@@ -36,7 +36,7 @@ class ROLO_TF:
     display_regu = False
     confidence_detection_threshold = .5
     # Magic numbers
-    learning_rate = 0.0001
+    learning_rate = 0.00005
     lamda = .3
 
     # Path
@@ -116,7 +116,7 @@ class ROLO_TF:
         # dilated conv block loop
         skip = 0  # skip connections
         for i in range(num_blocks):
-            for r in [1, 2, 4]:
+            for r in [1, 2]:
                 z, s = res_block(z, size=3, rate=r)
                 skip += s
 
@@ -200,9 +200,9 @@ class ROLO_TF:
                  tf.nn.l2_loss(I*(p_sqrt_w - sqrt_w)) +
                  tf.nn.l2_loss(I*(p_sqrt_h - sqrt_h))) * self.coord_scale
 
-        max_iou = tf.nn.l2_loss(I*(tf.ones_like(iou_predict_truth, dtype=tf.float32) - iou_predict_truth))
+        #max_iou = tf.nn.l2_loss(I*(tf.ones_like(iou_predict_truth, dtype=tf.float32) - iou_predict_truth))
 
-        total_loss = loss + object_loss + noobject_loss + max_iou
+        total_loss = loss + object_loss + noobject_loss #+ max_iou
 
         ''' Optimizer '''
         optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(total_loss) # Adam Optimizer
