@@ -25,7 +25,7 @@ class ROLO_TF:
     display_coords = False
     display_iou_penalty = True
     use_attention = False
-    coord_scale = 5.0
+    coord_scale = 10.0
     object_scale = 1.0
     noobject_scale = .5
     use_dropout=True
@@ -54,13 +54,15 @@ class ROLO_TF:
 
     # Batch
     nsteps = 3
-    batchsize = 16
+    batchsize = 64
     n_iters = 80000
     batch_offset = 0
 
     # Data
     x = tf.placeholder("float32", [None, nsteps, len_vec])
     y = tf.placeholder("float32", [None, len_coord])
+    keep_prob = tf.placeholder(tf.float32)
+    dropout_keep_prob = .6
 
     list_batch_pairs = []
 
@@ -103,7 +105,7 @@ class ROLO_TF:
         lstm_cell = tf.contrib.rnn.MultiRNNCell([cell] * self.number_of_layers, state_is_tuple=False)
 
         if self.use_dropout:
-            lstm_cell = tf.contrib.rnn.DropoutWrapper(cell, output_keep_prob=.7)
+            lstm_cell = tf.contrib.rnn.DropoutWrapper(cell, output_keep_prob=self.keep_prob)
 
         state = lstm_cell.zero_state(self.batchsize, tf.float32)
 
@@ -115,7 +117,7 @@ class ROLO_TF:
             pred, output_state = tf.contrib.rnn.static_rnn(lstm_cell, _X, state, dtype=tf.float32)
 
         # import pdb; pdb.set_trace()
-        dense_coords_conf = self.dnn_layers(pred[-1], (self.len_vec, 256, 32, self.len_coord+1), activation=tf.sigmoid)
+        dense_coords_conf = self.dnn_layers(pred[-1], (self.len_vec, 256, 32, self.len_coord+1), activation=tf.nn.sigmoid)
 
         batch_pred_feats = pred[0][:, 0:self.len_feat]
         batch_pred_coords = dense_coords_conf[:, 0:4]
@@ -230,12 +232,14 @@ class ROLO_TF:
                 ''' Update weights by back-propagation '''
 
                 sess.run(optimizer, feed_dict={self.x: batch_xs,
+                                               self.keep_prob : self.dropout_keep_prob, 
                                                self.y: batch_ys})
 
                 if self.iter_id % self.display_step == 0:
                     ''' Calculate batch loss '''
                     batch_loss = sess.run(total_loss,
                                           feed_dict={self.x: batch_xs,
+                                                     self.keep_prob : self.dropout_keep_prob, 
                                                      self.y: batch_ys})
                     epoch_loss.append(batch_loss)
                     print("Total Batch loss for iteration %d: %.9f" % (self.iter_id, batch_loss))
@@ -244,6 +248,7 @@ class ROLO_TF:
                     ''' Calculate batch loss '''
                     batch_loss = sess.run(loss,
                                           feed_dict={self.x: batch_xs,
+                                                     self.keep_prob : self.dropout_keep_prob, 
                                                      self.y: batch_ys})
                     print("Bounding box coord error loss for iteration %d: %.9f" % (self.iter_id, batch_loss))
 
@@ -251,6 +256,7 @@ class ROLO_TF:
                     ''' Calculate batch object loss '''
                     batch_o_loss = sess.run(object_loss,
                                           feed_dict={self.x: batch_xs,
+                                                     self.keep_prob : self.dropout_keep_prob, 
                                                      self.y: batch_ys})
                     print("Object loss for iteration %d: %.9f" % (self.iter_id, batch_o_loss))
 
@@ -258,6 +264,7 @@ class ROLO_TF:
                     ''' Calculate batch object loss '''
                     batch_noo_loss = sess.run(noobject_loss,
                                           feed_dict={self.x: batch_xs,
+                                                     self.keep_prob : self.dropout_keep_prob, 
                                                      self.y: batch_ys})
                     print("No Object loss for iteration %d: %.9f" % (self.iter_id, batch_noo_loss))
 
@@ -265,6 +272,7 @@ class ROLO_TF:
                     ''' Calculate batch object loss '''
                     batch_o_loss = sess.run(tf.reduce_mean(iou_predict_truth),
                                           feed_dict={self.x: batch_xs,
+                                                     self.keep_prob : self.dropout_keep_prob, 
                                                      self.y: batch_ys})
                     print("Average IOU with ground for iteration %d: %.9f" % (self.iter_id, batch_o_loss))
 
@@ -272,6 +280,7 @@ class ROLO_TF:
                     ''' Caculate predicted coordinates '''
                     coords_predict = sess.run(batch_pred_coords,
                                               feed_dict={self.x: batch_xs,
+                                                         self.keep_prob : self.dropout_keep_prob, 
                                                          self.y: batch_ys})
                     print("predicted coords:" + str(coords_predict[0]))
                     print("ground truth coords:" + str(batch_ys[0]))
@@ -295,6 +304,7 @@ class ROLO_TF:
 
                     ''' Write summary for tensorboard '''
                     summary = sess.run(summary_op, feed_dict={self.x: batch_xs,
+                                                              self.keep_prob : self.dropout_keep_prob, 
                                                               self.y: batch_ys})
                     test_writer.add_summary(summary, self.iter_id)
             print("Average total loss %f" % np.mean(epoch_loss))
@@ -333,13 +343,14 @@ class ROLO_TF:
             init_state_zeros = np.zeros((len(xs), 2*xs[0].shape[-1]))
             start=dt.datetime.now()
 
-            pred_location, pred_confs = sess.run([batch_pred_coords, batch_pred_confs],feed_dict={self.x: xs, self.y: ys})
+            pred_location, pred_confs = sess.run([batch_pred_coords, batch_pred_confs],feed_dict={self.x: xs, self.y: ys, self.keep_prob: 1.0})
 
             end=dt.datetime.now()
             total_prediction_time += (end-start).microseconds / 1e6
 
             iou_ground_truth, intersection_predicted = sess.run([iou_predict_truth, intersection],
                                   feed_dict={self.x: xs,
+                                             self.keep_prob : 1.0,
                                              self.y: ys})
 
             ious = []
@@ -388,6 +399,7 @@ class ROLO_TF:
 
             batch_loss = sess.run(loss,
                                   feed_dict={self.x: xs,
+                                             self.keep_prob: 1.0,
                                              self.y: ys})
 
 
