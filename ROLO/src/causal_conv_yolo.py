@@ -25,7 +25,7 @@ class ROLO_TF:
     display_coords = False
     display_iou_penalty = True
     use_attention = False
-    coord_scale = 5.0
+    coord_scale = 2.0
     object_scale = 1.0
     noobject_scale = .5
 
@@ -34,7 +34,7 @@ class ROLO_TF:
     iou_with_ground_truth = True
     display_object_loss = True
     display_regu = False
-    confidence_detection_threshold = .3
+    confidence_detection_threshold = .5
     # Magic numbers
     learning_rate = 0.0001
     lamda = .3
@@ -54,7 +54,7 @@ class ROLO_TF:
     # Batch
     nsteps = 3
     batchsize = 16
-    n_iters = 80000
+    n_iters = 100000
     batch_offset = 0
 
     # Data
@@ -122,7 +122,7 @@ class ROLO_TF:
 
         # final logit layers
         logit = (skip
-                 .sg_conv1d(size=1, act='sigmoid', bn=True)
+                 .sg_conv1d(size=1, act='tanh', bn=True)
                  .sg_conv1d(size=1, dim=5)) #5 => 4 coords + confidence
 
         # import pdb; pdb.set_trace()
@@ -195,12 +195,14 @@ class ROLO_TF:
         sqrt_w = tf.sqrt(tf.abs(self.y[:,2]))
         sqrt_h = tf.sqrt(tf.abs(self.y[:,3]))
 
-        loss = (tf.nn.l2_loss((batch_pred_coords[:,0] - self.y[:,0])) +
-                 tf.nn.l2_loss((batch_pred_coords[:,1] - self.y[:,1])) +
-                 tf.nn.l2_loss((p_sqrt_w - sqrt_w)) +
-                 tf.nn.l2_loss((p_sqrt_h - sqrt_h))) * self.coord_scale
+        loss = (tf.nn.l2_loss(I*(batch_pred_coords[:,0] - self.y[:,0])) +
+                 tf.nn.l2_loss(I*(batch_pred_coords[:,1] - self.y[:,1])) +
+                 tf.nn.l2_loss(I*(p_sqrt_w - sqrt_w)) +
+                 tf.nn.l2_loss(I*(p_sqrt_h - sqrt_h))) * self.coord_scale
 
-        total_loss = loss + object_loss + noobject_loss
+        max_iou = tf.nn.l2_loss(I*(tf.ones_like(iou_predict_truth, dtype=tf.float32) - iou_predict_truth))
+
+        total_loss = loss + object_loss + noobject_loss + max_iou
 
         ''' Optimizer '''
         optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(total_loss) # Adam Optimizer

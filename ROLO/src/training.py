@@ -25,7 +25,7 @@ class ROLO_TF:
     display_coords = False
     display_iou_penalty = True
     use_attention = False
-    coord_scale = 10.0
+    coord_scale = 5.0
     object_scale = 1.0
     noobject_scale = .5
     use_dropout=True
@@ -35,14 +35,14 @@ class ROLO_TF:
     iou_with_ground_truth = True
     display_object_loss = True
     display_regu = False
-    confidence_detection_threshold = .3
+    confidence_detection_threshold = .5
     # Magic numbers
     learning_rate = 0.0001
     lamda = .3
 
     # Path
-    rolo_weights_file = 'weights/rolo_weights.ckpt'
-    rolo_current_save = 'weights/rolo_weights_temp.ckpt'
+    rolo_weights_file = 'weights2/rolo_weights.ckpt'
+    rolo_current_save = 'weights2/rolo_weights_temp.ckpt'
 
     # Vector for very small model
     len_feat = 1080
@@ -182,10 +182,10 @@ class ROLO_TF:
         sqrt_w = tf.sqrt(tf.abs(self.y[:,2]))
         sqrt_h = tf.sqrt(tf.abs(self.y[:,3]))
 
-        loss = (tf.nn.l2_loss((batch_pred_coords[:,0] - self.y[:,0])) +
-                 tf.nn.l2_loss((batch_pred_coords[:,1] - self.y[:,1])) +
-                 tf.nn.l2_loss((p_sqrt_w - sqrt_w)) +
-                 tf.nn.l2_loss((p_sqrt_h - sqrt_h))) * self.coord_scale
+        loss = (tf.nn.l2_loss(I*(batch_pred_coords[:,0] - self.y[:,0])) +
+                 tf.nn.l2_loss(I*(batch_pred_coords[:,1] - self.y[:,1])) +
+                 tf.nn.l2_loss(I*(p_sqrt_w - sqrt_w)) +
+                 tf.nn.l2_loss(I*(p_sqrt_h - sqrt_h))) * self.coord_scale
 
         total_loss = loss + object_loss + noobject_loss
 
