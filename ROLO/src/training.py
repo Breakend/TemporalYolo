@@ -16,15 +16,15 @@ import datetime as dt
 class ROLO_TF:
     # Buttons
     validate = True
-    validate_step = 2000
+    validate_step = 1000
     display_validate = True
     save_step = 1000
     bidirectional = False
-    display_step = 250
+    display_step = 10
     restore_weights = True
     display_coords = False
     display_iou_penalty = True
-    use_attention = False
+    use_attention = True
     coord_scale = 5.0
     object_scale = 1.0
     noobject_scale = .5
@@ -41,8 +41,8 @@ class ROLO_TF:
     lamda = .3
 
     # Path
-    rolo_weights_file = 'weights2/rolo_weights.ckpt'
-    rolo_current_save = 'weights2/rolo_weights_temp.ckpt'
+    rolo_weights_file = 'weights/rolo_weights.ckpt'
+    rolo_current_save = 'weights/rolo_weights_temp.ckpt'
 
     # Vector for very small model
     len_feat = 1080
@@ -96,13 +96,11 @@ class ROLO_TF:
         initializer = tf.random_uniform_initializer(-1, 1)
         cell = tf.contrib.rnn.LSTMCell(self.len_vec, self.len_vec, state_is_tuple = False, initializer=initializer, use_peepholes=True)
 
-        # TODO: use dropout???
-
-        if self.use_attention:
-            cell = tf.contrib.rnn.AttentionCellWrapper(cell, sefl.nsteps)
-
         print("Using %d lstm layers" % self.number_of_layers)
         lstm_cell = tf.contrib.rnn.MultiRNNCell([cell] * self.number_of_layers, state_is_tuple=False)
+
+        if self.use_attention:
+            cell = tf.contrib.rnn.AttentionCellWrapper(cell, int(self.nsteps))
 
         if self.use_dropout:
             lstm_cell = tf.contrib.rnn.DropoutWrapper(cell, output_keep_prob=self.keep_prob)
@@ -335,6 +333,7 @@ class ROLO_TF:
         iou_averages = []
         intersection_averages =[]
         failure_rates = []
+        failures = 0
         print("Starting test batches")
         for batch_id in range(len(batch_loader.batches)):
             xs, ys, im_paths = batch_loader.load_batch(batch_id)
@@ -357,7 +356,6 @@ class ROLO_TF:
 
             ious = []
             intersections = []
-            failures = 0
             # TODO: clean this up, remove logging
             for i, loc in enumerate(pred_location):
                 img = cv2.imread(im_paths[i])
