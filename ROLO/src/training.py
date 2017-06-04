@@ -24,7 +24,7 @@ class ROLO_TF:
     restore_weights = True
     display_coords = False
     display_iou_penalty = True
-    use_attention = True
+    use_attention = False
     coord_scale = 5.0
     object_scale = 1.0
     noobject_scale = .5
