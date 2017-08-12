@@ -9,7 +9,7 @@ Please cite the following if you use this codebase:
 @INPROCEEDINGS{shkurti2017aqua,
 title={Underwater Multi-Robot Convoying using Visual Tracking by Detection},
 author={Shkurti, Florian and Chang, Wei-Di and Henderson, Peter and Islam, Md Jahidul and Camilo Gamboa Higuera, Juan and Li, Jimmy and Manderson, Travis and Xu, Anqi and Dudek, Gregory and Sattar, Junaed},
-Booktitle = {Proc. of The IEEE International Conference on Intelligent Robots and Systems (IROS) (in review)},
+Booktitle = {Proc. of The IEEE International Conference on Intelligent Robots and Systems (IROS)},
 Year = {2017}
 }
 ```
