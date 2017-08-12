@@ -5,4 +5,11 @@ NOTE: The pure ROLO code we take from https://github.com/Guanghan/ROLO and modif
 
 Please cite the following if you use this codebase:
 
-CITATION TO BE INCLUDED LATER, PLEASE CONTACT AUTHOR IF USING.
+```bibtex
+@INPROCEEDINGS{shkurti2017aqua,
+title={Underwater Multi-Robot Convoying using Visual Tracking by Detection},
+author={Shkurti, Florian and Chang, Wei-Di and Henderson, Peter and Islam, Md Jahidul and Camilo Gamboa Higuera, Juan and Li, Jimmy and Manderson, Travis and Xu, Anqi and Dudek, Gregory and Sattar, Junaed},
+Booktitle = {Proc. of The International Conference on Intelligent Robots and Systems (IROS) (in review)},
+Year = {2017}
+}
+```
